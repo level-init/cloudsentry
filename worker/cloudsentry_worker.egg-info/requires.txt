@@ -1,1 +1,0 @@
-pydantic-settings<3,>=2.6
