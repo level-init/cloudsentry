@@ -34,17 +34,18 @@ cloudsentry/
 ├── api/            # FastAPI backend (health skeleton)
 ├── worker/         # Detectors, workflows, verification jobs (planned)
 ├── simulator/      # AWS-like fake cloud environment (planned)
-├── web/            # Next.js dashboard (planned)
+├── web/            # Next.js app shell
 └── terraform/      # IaC templates / generated change examples (planned)
 ```
 
-The API skeleton is documented in [api/README.md](api/README.md). The other application packages are not scaffolded yet.
+The API skeleton is documented in [api/README.md](api/README.md). The web shell is documented in [web/README.md](web/README.md). The other application packages are not scaffolded yet.
 
 ## Documentation
 
 - [Product overview](docs/product-overview.md) — what we are building and why
 - [Git standards](docs/git-standards.md) — branching, commits, PRs, bootstrap
 - [API](api/README.md) — how to run the backend locally
+- [Web](web/README.md) — how to run the frontend locally
 
 ## Development workflow
 
@@ -52,4 +53,4 @@ We use long-lived `main` and `dev` branches. All feature work happens on short-l
 
 ## Status
 
-**API skeleton.** `GET /health` is available. Start it from [api/README.md](api/README.md). Next work follows the phased plan in the product overview (simulator → inventory → detectors → proposals → approval → execution → verification → dashboard).
+**API and web shells.** `GET /health` is available from [api/README.md](api/README.md). The Next.js home page is available from [web/README.md](web/README.md). Next work follows the phased plan in the product overview (simulator → inventory → detectors → proposals → approval → execution → verification → dashboard).
