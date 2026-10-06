@@ -26,24 +26,25 @@ Most cost tools stop at recommendations. CloudSentry owns the harder questions: 
 
 See [docs/product-overview.md](docs/product-overview.md) for the full north-star description.
 
-## Repository layout (planned)
+## Repository layout
 
 ```text
 cloudsentry/
 ├── docs/           # Product and process documentation
-├── api/            # FastAPI backend (planned)
+├── api/            # FastAPI backend (health skeleton)
 ├── worker/         # Detectors, workflows, verification jobs (planned)
 ├── simulator/      # AWS-like fake cloud environment (planned)
 ├── web/            # Next.js dashboard (planned)
 └── terraform/      # IaC templates / generated change examples (planned)
 ```
 
-Application packages are not scaffolded yet. This repository currently holds product and process docs only.
+The API skeleton is documented in [api/README.md](api/README.md). The other application packages are not scaffolded yet.
 
 ## Documentation
 
 - [Product overview](docs/product-overview.md) — what we are building and why
 - [Git standards](docs/git-standards.md) — branching, commits, PRs, bootstrap
+- [API](api/README.md) — how to run the backend locally
 
 ## Development workflow
 
@@ -51,4 +52,4 @@ We use long-lived `main` and `dev` branches. All feature work happens on short-l
 
 ## Status
 
-**Docs bootstrap.** No application runtime yet. Next work will follow the phased plan in the product overview (simulator → inventory → detectors → proposals → approval → execution → verification → dashboard).
+**API skeleton.** `GET /health` is available. Start it from [api/README.md](api/README.md). Next work follows the phased plan in the product overview (simulator → inventory → detectors → proposals → approval → execution → verification → dashboard).
