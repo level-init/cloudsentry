@@ -33,12 +33,12 @@ cloudsentry/
 ├── docs/           # Product and process documentation
 ├── api/            # FastAPI backend (health skeleton)
 ├── worker/         # Background worker (no-op skeleton)
-├── simulator/      # AWS-like fake cloud environment (planned)
+├── simulator/      # AWS-like simulator (health skeleton, port 8001)
 ├── web/            # Next.js app shell
 └── terraform/      # IaC templates / generated change examples (planned)
 ```
 
-The API skeleton is documented in [api/README.md](api/README.md). The web shell is documented in [web/README.md](web/README.md). The worker skeleton is documented in [worker/README.md](worker/README.md). The other application packages are not scaffolded yet.
+The API skeleton is documented in [api/README.md](api/README.md). The web shell is documented in [web/README.md](web/README.md). The worker skeleton is documented in [worker/README.md](worker/README.md). The simulator skeleton is documented in [simulator/README.md](simulator/README.md). Terraform is not scaffolded yet.
 
 ## Documentation
 
@@ -47,6 +47,7 @@ The API skeleton is documented in [api/README.md](api/README.md). The web shell 
 - [API](api/README.md) — how to run the backend locally
 - [Web](web/README.md) — how to run the frontend locally
 - [Worker](worker/README.md) — how to run the worker locally
+- [Simulator](simulator/README.md) — how to run the simulator locally
 
 ## Development workflow
 
@@ -54,4 +55,4 @@ We use long-lived `main` and `dev` branches. All feature work happens on short-l
 
 ## Status
 
-**API, web, and worker shells.** `GET /health` is available from [api/README.md](api/README.md). The Next.js home page is available from [web/README.md](web/README.md). The worker no-op job is available from [worker/README.md](worker/README.md). Next work follows the phased plan in the product overview (simulator → inventory → detectors → proposals → approval → execution → verification → dashboard).
+**API, web, worker, and simulator shells.** `GET /health` for the API is documented in [api/README.md](api/README.md). The Next.js home page is documented in [web/README.md](web/README.md). The worker no-op job is documented in [worker/README.md](worker/README.md). The simulator health check is documented in [simulator/README.md](simulator/README.md). Next work follows the phased plan in the product overview (inventory → detectors → proposals → approval → execution → verification → dashboard).
