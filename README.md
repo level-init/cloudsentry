@@ -30,6 +30,7 @@ See [docs/product-overview.md](docs/product-overview.md) for the full north-star
 
 ```text
 cloudsentry/
+├── docker-compose.yml
 ├── docs/           # Product and process documentation
 ├── api/            # FastAPI backend (health skeleton)
 ├── worker/         # Background worker (no-op skeleton)
@@ -38,7 +39,7 @@ cloudsentry/
 └── terraform/      # IaC templates / generated change examples (planned)
 ```
 
-The API skeleton is documented in [api/README.md](api/README.md). The web shell is documented in [web/README.md](web/README.md). The worker skeleton is documented in [worker/README.md](worker/README.md). The simulator skeleton is documented in [simulator/README.md](simulator/README.md). Terraform is not scaffolded yet.
+The API skeleton is documented in [api/README.md](api/README.md). The web shell is documented in [web/README.md](web/README.md). The worker skeleton is documented in [worker/README.md](worker/README.md). The simulator skeleton is documented in [simulator/README.md](simulator/README.md). Local Postgres is documented below. Terraform is not scaffolded yet.
 
 ## Documentation
 
@@ -48,6 +49,18 @@ The API skeleton is documented in [api/README.md](api/README.md). The web shell 
 - [Web](web/README.md) — how to run the frontend locally
 - [Worker](worker/README.md) — how to run the worker locally
 - [Simulator](simulator/README.md) — how to run the simulator locally
+
+## Local Postgres
+
+Copy the example env file once. `.env` is gitignored.
+
+```bash
+cp .env.example .env
+docker compose up -d
+docker compose ps
+```
+
+Postgres listens on `localhost:5432`. The API and worker read `DATABASE_URL` from `.env`. The default URL matches this Compose database. These processes do not connect to Postgres yet.
 
 ## Development workflow
 
