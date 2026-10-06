@@ -62,6 +62,19 @@ docker compose ps
 
 Postgres listens on `localhost:5432`. The API and worker read `DATABASE_URL` from `.env`. The default URL matches this Compose database. These processes do not connect to Postgres yet.
 
+## Python checks
+
+From the repository root, with the virtualenv active:
+
+```bash
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+make lint
+make test
+```
+
+`make lint` runs Ruff on `api`, `worker`, and `simulator`. `make test` runs pytest and discovers the tests in those packages. Frontend lint is separate and not part of these commands.
+
 ## Development workflow
 
 We use long-lived `main` and `dev` branches. All feature work happens on short-lived, issue-linked task branches merged into `dev` via pull request. Details: [docs/git-standards.md](docs/git-standards.md).

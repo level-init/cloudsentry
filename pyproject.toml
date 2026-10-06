@@ -1,0 +1,10 @@
+[tool.ruff]
+line-length = 100
+src = ["api", "worker", "simulator"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+
+[tool.pytest.ini_options]
+pythonpath = ["api", "worker", "simulator"]
+testpaths = ["api/tests", "worker/tests", "simulator/tests"]
