@@ -1,0 +1,2 @@
+[console_scripts]
+cloudsentry-worker = worker.main:run

@@ -32,13 +32,13 @@ See [docs/product-overview.md](docs/product-overview.md) for the full north-star
 cloudsentry/
 ├── docs/           # Product and process documentation
 ├── api/            # FastAPI backend (health skeleton)
-├── worker/         # Detectors, workflows, verification jobs (planned)
+├── worker/         # Background worker (no-op skeleton)
 ├── simulator/      # AWS-like fake cloud environment (planned)
 ├── web/            # Next.js app shell
 └── terraform/      # IaC templates / generated change examples (planned)
 ```
 
-The API skeleton is documented in [api/README.md](api/README.md). The web shell is documented in [web/README.md](web/README.md). The other application packages are not scaffolded yet.
+The API skeleton is documented in [api/README.md](api/README.md). The web shell is documented in [web/README.md](web/README.md). The worker skeleton is documented in [worker/README.md](worker/README.md). The other application packages are not scaffolded yet.
 
 ## Documentation
 
@@ -46,6 +46,7 @@ The API skeleton is documented in [api/README.md](api/README.md). The web shell 
 - [Git standards](docs/git-standards.md) — branching, commits, PRs, bootstrap
 - [API](api/README.md) — how to run the backend locally
 - [Web](web/README.md) — how to run the frontend locally
+- [Worker](worker/README.md) — how to run the worker locally
 
 ## Development workflow
 
@@ -53,4 +54,4 @@ We use long-lived `main` and `dev` branches. All feature work happens on short-l
 
 ## Status
 
-**API and web shells.** `GET /health` is available from [api/README.md](api/README.md). The Next.js home page is available from [web/README.md](web/README.md). Next work follows the phased plan in the product overview (simulator → inventory → detectors → proposals → approval → execution → verification → dashboard).
+**API, web, and worker shells.** `GET /health` is available from [api/README.md](api/README.md). The Next.js home page is available from [web/README.md](web/README.md). The worker no-op job is available from [worker/README.md](worker/README.md). Next work follows the phased plan in the product overview (simulator → inventory → detectors → proposals → approval → execution → verification → dashboard).
