@@ -2,7 +2,7 @@
 
 A detector emits a Finding. Planning turns that into an OptimizationProposal
 with a RiskAssessment. Approval, execution, and verification statuses are
-placeholders until those workflows exist. Execution runs are a later schema.
+placeholders until those workflows exist. Execution runs live in app.execution.
 """
 
 from enum import StrEnum
