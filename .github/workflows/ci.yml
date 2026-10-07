@@ -8,6 +8,22 @@ jobs:
   python:
     name: Python lint and test
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: cloudsentry
+          POSTGRES_PASSWORD: cloudsentry
+          POSTGRES_DB: cloudsentry
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cloudsentry -d cloudsentry"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://cloudsentry:cloudsentry@localhost:5432/cloudsentry
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -20,6 +36,8 @@ jobs:
           pip install -e ./api -e ./worker -e ./simulator
       - name: Lint
         run: make lint
+      - name: Migrate
+        run: alembic -c api/alembic.ini upgrade head
       - name: Test
         run: make test
 
