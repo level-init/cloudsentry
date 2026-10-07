@@ -50,25 +50,40 @@ The API skeleton is documented in [api/README.md](api/README.md). The web shell 
 - [Worker](worker/README.md) — how to run the worker locally
 - [Simulator](simulator/README.md) — how to run the simulator locally
 
-## Local Postgres
+## Quickstart
 
-Copy the example env file once. `.env` is gitignored.
+From the repository root:
 
 ```bash
-cp .env.example .env
-docker compose up -d
-docker compose ps
+make install
+make compose-up
 ```
 
-Postgres listens on `localhost:5432`. The API and worker read `DATABASE_URL` from `.env`. The default URL matches this Compose database. These processes do not connect to Postgres yet.
+`make install` creates `.venv`, installs the Python packages and dev tools, and installs the web dependencies. `make compose-up` copies `.env.example` to `.env` when `.env` is missing, then starts Postgres. `.env` is gitignored.
+
+Start each process in its own terminal. These keep running until you stop them with Ctrl+C:
+
+```bash
+make run-api
+make run-web
+make run-simulator
+make run-worker
+```
+
+| Command | Address |
+| --- | --- |
+| `make run-api` | http://127.0.0.1:8000/health |
+| `make run-simulator` | http://127.0.0.1:8001/health |
+| `make run-web` | http://localhost:3000 |
+| `make run-worker` | logs `worker ok`, then exits |
+
+`make migrate` prints a placeholder message. Real migrations arrive with the database schema work. Postgres listens on `localhost:5432`. The API and worker read `DATABASE_URL` from `.env`. Nothing connects to Postgres yet.
 
 ## Python checks
 
-From the repository root, with the virtualenv active:
+From the repository root, after `make install`:
 
 ```bash
-source .venv/bin/activate
-pip install -r requirements-dev.txt
 make lint
 make test
 ```
