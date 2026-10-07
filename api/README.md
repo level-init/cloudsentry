@@ -20,3 +20,7 @@ curl -s localhost:8000/health
 Expected response: `{"status":"ok"}`.
 
 Stop the server with Ctrl+C. `DATABASE_URL` is optional for this skeleton. The default in `app/config.py` is a placeholder and is not used by `/health`.
+
+## Core schemas
+
+`app/schemas.py` defines the inventory records: `Resource`, `Metric`, `CostRecord`, `Dependency`, `Incident`, and `Policy`. A resource carries `owner`, `team`, `environment`, `business_criticality`, and `tags`. Invalid values are rejected by Pydantic. Optimization proposals are not part of this module.
