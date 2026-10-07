@@ -92,7 +92,7 @@ make test
 
 ## Pull request checks
 
-Pull requests into `dev` run `.github/workflows/ci.yml`. Both of these checks must pass:
+Pull requests into `dev` and `main` run `.github/workflows/ci.yml`. Both of these checks must pass:
 
 - **Python lint and test** runs `make lint` and `make test`.
 - **Web lint and build** runs `npm run lint` and `npm run build` in `web/`.
