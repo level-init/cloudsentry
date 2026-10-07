@@ -45,7 +45,7 @@ The API skeleton is documented in [api/README.md](api/README.md). The web shell 
 
 - [Product overview](docs/product-overview.md) — what we are building and why
 - [Git standards](docs/git-standards.md) — branching, commits, PRs, bootstrap
-- [API](api/README.md) — how to run the backend locally
+- [API](api/README.md) — how to run the backend locally, including `/docs`
 - [Web](web/README.md) — how to run the frontend locally
 - [Worker](worker/README.md) — how to run the worker locally
 - [Simulator](simulator/README.md) — how to run the simulator locally
@@ -72,7 +72,7 @@ make run-worker
 
 | Command | Address |
 | --- | --- |
-| `make run-api` | http://127.0.0.1:8000/health |
+| `make run-api` | http://127.0.0.1:8000/health and http://127.0.0.1:8000/docs |
 | `make run-simulator` | http://127.0.0.1:8001/health |
 | `make run-web` | http://localhost:3000 |
 | `make run-worker` | logs `worker ok`, then exits |
