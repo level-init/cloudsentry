@@ -1,0 +1,41 @@
+# CloudSentry Simulator
+
+AWS-like fake cloud. Accounts, environments, and resources live in an in-memory inventory (`simulator.model`). The HTTP service still only serves a health check. This package does not import the API or the worker.
+
+## Inventory model
+
+An account has a 12-digit id and one environment: `development`, `staging`, or `production`. Those names match the API `Environment` values. A resource belongs to one account and uses that account's environment. Resource ids are stable: `resource_id(type, suffix)` always returns the same string for the same inputs.
+
+| Simulator type | ID prefix | AWS-like concept | MVP use |
+| --- | --- | --- | --- |
+| `compute` | `i-` | EC2 instance | Idle compute, rightsizing, dev scheduling |
+| `disk` | `vol-` | EBS volume | Unattached storage |
+| `snapshot` | `snap-` | EBS snapshot | Unattached storage |
+| `object_storage` | `bucket-` | S3 bucket | Storage lifecycle |
+| `database` | `db-` | RDS instance | Inventory |
+| `load_balancer` | `lb-` | Application or network load balancer | Inventory |
+| `cluster` | `cluster-` | Small ECS-like cluster | Inventory |
+
+Suffixes are lowercase letters, digits, and hyphens, so a seed can choose `i-idle-dev` and get that id on every run. Metrics, billing, tags, and the company seed are later tickets.
+
+The API listens on port **8000**. This service listens on port **8001**.
+
+## Run locally
+
+From the repository root:
+
+```bash
+source .venv/bin/activate
+pip install -e ./simulator
+cloudsentry-simulator
+```
+
+Then, in a second terminal:
+
+```bash
+curl -s -D - http://127.0.0.1:8001/health
+```
+
+Expected response: HTTP 200 and `{"status":"ok"}`.
+
+Stop the server with Ctrl+C.

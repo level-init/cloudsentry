@@ -1,0 +1,11 @@
+[project]
+name = "cloudsentry-worker"
+version = "0.1.0"
+description = "CloudSentry worker"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic-settings>=2.6,<3",
+]
+
+[project.scripts]
+cloudsentry-worker = "worker.main:run"
