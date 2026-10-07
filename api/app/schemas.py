@@ -2,7 +2,8 @@
 
 These are the shared records for resources, telemetry, cost, dependencies,
 incidents, and automation policy. Optimization proposals live in app.proposals.
-Database tables for these models arrive with the migrations work.
+Database tables for these models are created by `make migrate`.
+The SQLAlchemy mappings live in `app.tables`.
 """
 
 from datetime import datetime

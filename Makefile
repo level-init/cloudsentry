@@ -1,4 +1,4 @@
-.PHONY: install compose-up migrate run-api run-web run-simulator run-worker lint test
+.PHONY: install compose-up migrate migrate-down run-api run-web run-simulator run-worker lint test
 
 BIN := $(if $(wildcard .venv/bin/ruff),.venv/bin/,)
 
@@ -14,7 +14,10 @@ compose-up:
 	docker compose up -d
 
 migrate:
-	@echo "Database migrations are not set up yet."
+	.venv/bin/alembic -c api/alembic.ini upgrade head
+
+migrate-down:
+	.venv/bin/alembic -c api/alembic.ini downgrade base
 
 run-api:
 	.venv/bin/cloudsentry-api
