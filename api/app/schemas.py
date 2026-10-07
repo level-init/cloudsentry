@@ -1,7 +1,7 @@
 """Core inventory schemas.
 
 These are the shared records for resources, telemetry, cost, dependencies,
-incidents, and automation policy. Optimization proposals are a later schema.
+incidents, and automation policy. Optimization proposals live in app.proposals.
 Database tables for these models arrive with the migrations work.
 """
 

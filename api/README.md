@@ -23,4 +23,6 @@ Stop the server with Ctrl+C. `DATABASE_URL` is optional for this skeleton. The d
 
 ## Core schemas
 
-`app/schemas.py` defines the inventory records: `Resource`, `Metric`, `CostRecord`, `Dependency`, `Incident`, and `Policy`. A resource carries `owner`, `team`, `environment`, `business_criticality`, and `tags`. Invalid values are rejected by Pydantic. Optimization proposals are not part of this module.
+`app/schemas.py` defines the inventory records: `Resource`, `Metric`, `CostRecord`, `Dependency`, `Incident`, and `Policy`. A resource carries `owner`, `team`, `environment`, `business_criticality`, and `tags`. Invalid values are rejected by Pydantic.
+
+`app/proposals.py` defines `Finding`, `RiskAssessment`, and `OptimizationProposal`. A proposal includes cost, savings, confidence, evidence, actions, a rollback plan, and approval, execution, and verification statuses. `model_dump_json()` produces an API response. Execution runs are not part of this module.
