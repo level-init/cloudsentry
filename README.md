@@ -75,6 +75,15 @@ make test
 
 `make lint` runs Ruff on `api`, `worker`, and `simulator`. `make test` runs pytest and discovers the tests in those packages. Frontend lint is separate and not part of these commands.
 
+## Pull request checks
+
+Pull requests into `dev` run `.github/workflows/ci.yml`. Both of these checks must pass:
+
+- **Python lint and test** runs `make lint` and `make test`.
+- **Web lint and build** runs `npm run lint` and `npm run build` in `web/`.
+
+A lint failure fails the check. This workflow does not deploy the app.
+
 ## Development workflow
 
 We use long-lived `main` and `dev` branches. All feature work happens on short-lived, issue-linked task branches merged into `dev` via pull request. Details: [docs/git-standards.md](docs/git-standards.md).
