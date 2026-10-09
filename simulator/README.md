@@ -16,7 +16,7 @@ An account has a 12-digit id and one environment: `development`, `staging`, or `
 | `load_balancer` | `lb-` | Application or network load balancer | Inventory |
 | `cluster` | `cluster-` | Small ECS-like cluster | Inventory |
 
-Suffixes are lowercase letters, digits, and hyphens, so a seed can choose `i-idle-dev` and get that id on every run. Metrics, billing, and tags are later tickets.
+Suffixes are lowercase letters, digits, and hyphens, so a seed can choose `i-idle-dev` and get that id on every run. Billing and tags are later tickets.
 
 ## Company seed
 
@@ -35,6 +35,20 @@ That command rebuilds the in-memory company from RNG seed `30`. Running it again
 | payments-prod | `333333333333` | production | 60 |
 
 **180 resources** total. Each account includes every resource type. Compute is the most common. Ids look like `i-dev-000` and `vol-prd-014`.
+
+## Metrics
+
+Hourly samples cover the 120 days ending 2026-04-01 UTC. Compute has CPU, memory, network, and request series. Databases, load balancers, clusters, and object storage have the series that apply to them. Disks and snapshots do not.
+
+Each compute resource follows one stable profile. `steady_low` and `steady_mid` stay near a flat level, with a slow 30-day seasonal swing. `business_hours` rises on weekdays from 09:00 to 17:00 UTC. `spike_trap` stays low except for a Wednesday 15:00 UTC spike, so the peak is several times the average.
+
+From the repository root:
+
+```bash
+make simulator-metrics
+```
+
+That prints average and peak CPU for one spike-trap resource and one steady resource.
 
 The API listens on port **8000**. This service listens on port **8001**.
 
