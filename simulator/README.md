@@ -16,7 +16,7 @@ An account has a 12-digit id and one environment: `development`, `staging`, or `
 | `load_balancer` | `lb-` | Application or network load balancer | Inventory |
 | `cluster` | `cluster-` | Small ECS-like cluster | Inventory |
 
-Suffixes are lowercase letters, digits, and hyphens, so a seed can choose `i-idle-dev` and get that id on every run. Billing and tags are later tickets.
+Suffixes are lowercase letters, digits, and hyphens, so a seed can choose `i-idle-dev` and get that id on every run. Tags are a later ticket.
 
 ## Company seed
 
@@ -49,6 +49,28 @@ make simulator-metrics
 ```
 
 That prints average and peak CPU for one spike-trap resource and one steady resource.
+
+## Billing
+
+Each resource has one monthly rate, chosen from a small AWS-like price list and kept stable for that resource id. Daily line items split that rate across the days of the month, so the daily cents add back to the monthly rate exactly. Account spend for a month is the sum of its resources.
+
+| Type | SKUs | Monthly rate |
+| --- | --- | --- |
+| compute | `t3.medium`, `m5.large`, `m5.xlarge` | $30.37, $70.08, $140.16 |
+| disk | `gp3-100gb`, `gp3-500gb` | $8.00, $40.00 |
+| snapshot | `snapshot-100gb`, `snapshot-1tb` | $5.00, $50.00 |
+| object storage | `s3-standard-500gb`, `s3-standard-5tb` | $11.50, $115.00 |
+| database | `db.t3.medium`, `db.m5.large` | $49.64, $124.83 |
+| load balancer | `alb` | $22.27 |
+| cluster | `cluster-2xm5-large`, `cluster-4xm5-large` | $140.16, $280.32 |
+
+Compute, database, load balancer, and cluster rates assume 730 hours. Storage rates are GB-month prices. From the repository root:
+
+```bash
+make simulator-billing
+```
+
+That prints March 2026 spend for each account. The daily-line total matches the sum of the monthly rates.
 
 The API listens on port **8000**. This service listens on port **8001**.
 
