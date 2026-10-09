@@ -16,7 +16,7 @@ An account has a 12-digit id and one environment: `development`, `staging`, or `
 | `load_balancer` | `lb-` | Application or network load balancer | Inventory |
 | `cluster` | `cluster-` | Small ECS-like cluster | Inventory |
 
-Suffixes are lowercase letters, digits, and hyphens, so a seed can choose `i-idle-dev` and get that id on every run. Tags are a later ticket.
+Suffixes are lowercase letters, digits, and hyphens, so a seed can choose `i-idle-dev` and get that id on every run.
 
 ## Company seed
 
@@ -71,6 +71,16 @@ make simulator-billing
 ```
 
 That prints March 2026 spend for each account. The daily-line total matches the sum of the monthly rates.
+
+## Tags
+
+Every seeded resource has `owner`, `team`, `environment`, and `criticality` tags. The environment tag matches the account environment. Development resources are `low`. Staging resources are `medium`. Production databases, load balancers, and clusters are `high`, as are some other production resources. `resources_by_tag` filters the inventory. The HTTP read API comes later.
+
+```bash
+make simulator-tags
+```
+
+That prints tags for the first 10 resources and the count of production resources marked `criticality=high`.
 
 The API listens on port **8000**. This service listens on port **8001**.
 
