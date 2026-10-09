@@ -72,6 +72,7 @@ class SimResource(BaseModel):
     account_id: str = Field(pattern=r"^\d{12}$")
     environment: Environment
     name: str = Field(min_length=1)
+    tags: dict[str, str] = Field(default_factory=dict)
 
 
 class Inventory(BaseModel):
