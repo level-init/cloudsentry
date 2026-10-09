@@ -82,6 +82,18 @@ make simulator-tags
 
 That prints tags for the first 10 resources and the count of production resources marked `criticality=high`.
 
+## Dependencies
+
+Edges are directed: the source depends on the target. Within each account, compute uses a database and reads a bucket, databases store on a disk, load balancers route to compute, and snapshots point at a disk. `dependencies` and `dependents` list the edges for one resource.
+
+The planted production chain is `i-prd-000` uses `db-prd-014`, which stores on `vol-prd-003`.
+
+```bash
+make simulator-deps
+```
+
+That prints the chain and each hop.
+
 The API listens on port **8000**. This service listens on port **8001**.
 
 ## Run locally

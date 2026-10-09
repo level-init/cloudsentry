@@ -1,4 +1,4 @@
-.PHONY: install compose-up migrate migrate-down run-api run-web run-simulator run-worker seed-simulator simulator-metrics simulator-billing simulator-tags lint test
+.PHONY: install compose-up migrate migrate-down run-api run-web run-simulator run-worker seed-simulator simulator-metrics simulator-billing simulator-tags simulator-deps lint test
 
 BIN := $(if $(wildcard .venv/bin/ruff),.venv/bin/,)
 
@@ -39,6 +39,9 @@ simulator-billing:
 
 simulator-tags:
 	.venv/bin/python -m simulator.tags
+
+simulator-deps:
+	.venv/bin/python -m simulator.dependencies
 
 run-worker:
 	.venv/bin/cloudsentry-worker
