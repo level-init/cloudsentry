@@ -1,4 +1,4 @@
-.PHONY: install compose-up migrate migrate-down run-api run-web run-simulator run-worker lint test
+.PHONY: install compose-up migrate migrate-down run-api run-web run-simulator run-worker seed-simulator lint test
 
 BIN := $(if $(wildcard .venv/bin/ruff),.venv/bin/,)
 
@@ -27,6 +27,9 @@ run-web:
 
 run-simulator:
 	.venv/bin/cloudsentry-simulator
+
+seed-simulator:
+	.venv/bin/python -m simulator.seed
 
 run-worker:
 	.venv/bin/cloudsentry-worker

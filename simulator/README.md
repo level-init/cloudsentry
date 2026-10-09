@@ -16,7 +16,25 @@ An account has a 12-digit id and one environment: `development`, `staging`, or `
 | `load_balancer` | `lb-` | Application or network load balancer | Inventory |
 | `cluster` | `cluster-` | Small ECS-like cluster | Inventory |
 
-Suffixes are lowercase letters, digits, and hyphens, so a seed can choose `i-idle-dev` and get that id on every run. Metrics, billing, tags, and the company seed are later tickets.
+Suffixes are lowercase letters, digits, and hyphens, so a seed can choose `i-idle-dev` and get that id on every run. Metrics, billing, and tags are later tickets.
+
+## Company seed
+
+From the repository root, after `make install`:
+
+```bash
+make seed-simulator
+```
+
+That command rebuilds the in-memory company from RNG seed `30`. Running it again replaces the previous inventory with the same one.
+
+| Account | ID | Environment | Resources |
+| --- | --- | --- | --- |
+| payments-dev | `111111111111` | development | 70 |
+| payments-staging | `222222222222` | staging | 50 |
+| payments-prod | `333333333333` | production | 60 |
+
+**180 resources** total. Each account includes every resource type. Compute is the most common. Ids look like `i-dev-000` and `vol-prd-014`.
 
 The API listens on port **8000**. This service listens on port **8001**.
 
