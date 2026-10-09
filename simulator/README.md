@@ -94,6 +94,16 @@ make simulator-deps
 
 That prints the chain and each hop.
 
+## Incidents
+
+Seeded incidents have a severity and a start time, and they point at a resource id. `incidents_for` lists the incidents for one resource. `i-prd-005` is a production compute instance with a steady low CPU profile, and it has high-severity incident `inc-prd-idle` on 2026-03-20, twelve days before the metric history ends.
+
+```bash
+make simulator-incidents
+```
+
+That prints the incident on `i-prd-005`.
+
 The API listens on port **8000**. This service listens on port **8001**.
 
 ## Run locally
