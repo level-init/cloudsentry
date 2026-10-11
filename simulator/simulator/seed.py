@@ -7,6 +7,7 @@ seed always yields the same accounts, resource ids, and counts.
 import random
 
 from simulator.model import Account, Environment, Inventory, ResourceType, SimResource, resource_id
+from simulator.scenarios import scenario_for
 from simulator.tags import resource_tags
 
 SEED = 30
@@ -55,14 +56,20 @@ def seed_company(seed: int = SEED) -> Inventory:
         for index, resource_type in enumerate(types):
             suffix = f"{code}-{index:03d}"
             assigned_id = resource_id(resource_type, suffix)
+            scenario = scenario_for(assigned_id)
+            tags = resource_tags(assigned_id, resource_type, account.environment)
+            name = f"{resource_type.value}-{suffix}"
+            if scenario is not None:
+                tags["scenario"] = scenario.key
+                name = scenario.name
             resources.append(
                 SimResource(
                     resource_id=assigned_id,
                     resource_type=resource_type,
                     account_id=account.account_id,
                     environment=account.environment,
-                    name=f"{resource_type.value}-{suffix}",
-                    tags=resource_tags(assigned_id, resource_type, account.environment),
+                    name=name,
+                    tags=tags,
                 )
             )
     return Inventory(accounts=list(ACCOUNTS), resources=resources)

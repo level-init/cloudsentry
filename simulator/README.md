@@ -104,6 +104,14 @@ make simulator-incidents
 
 That prints the incident on `i-prd-005`.
 
+## Waste scenarios
+
+Named fixtures for the five MVP detectors, plus a spike-trap that must not be rightsized, are listed in [DEMO_SCENARIOS.md](DEMO_SCENARIOS.md).
+
+```bash
+make simulator-scenarios
+```
+
 The API listens on port **8000**. This service listens on port **8001**.
 
 ## Run locally
