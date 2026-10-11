@@ -1,6 +1,6 @@
 # CloudSentry Simulator
 
-AWS-like fake cloud. Accounts, environments, and resources live in an in-memory inventory (`simulator.model`). The HTTP service still only serves a health check. This package does not import the API or the worker.
+AWS-like fake cloud. Accounts, environments, and resources live in an in-memory inventory (`simulator.model`). The HTTP service is read-only. This package does not import the API or the worker.
 
 ## Inventory model
 
@@ -128,8 +128,13 @@ Then, in a second terminal:
 
 ```bash
 curl -s -D - http://127.0.0.1:8001/health
+curl -s http://127.0.0.1:8001/resources?limit=200
+curl -s http://127.0.0.1:8001/resources/i-prd-017/metrics?name=cpu_percent
+curl -s http://127.0.0.1:8001/resources/i-prd-017/costs
+curl -s http://127.0.0.1:8001/resources/i-prd-000/dependencies
+curl -s http://127.0.0.1:8001/resources/i-prd-005/incidents
 ```
 
-Expected response: HTTP 200 and `{"status":"ok"}`.
+`/health` returns `{"status":"ok"}`. `/resources` returns the 180-resource company. Metrics default to the first day of seeded history. Costs default to March 2026. Interactive docs are at [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs). Filters: `environment`, `account_id`, `resource_type`, and `scenario`.
 
 Stop the server with Ctrl+C.
