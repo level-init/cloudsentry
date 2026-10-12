@@ -52,7 +52,7 @@ That prints average and peak CPU for one spike-trap resource and one steady reso
 
 ## Billing
 
-Each resource has one monthly rate, chosen from a small AWS-like price list and kept stable for that resource id. Daily line items split that rate across the days of the month, so the daily cents add back to the monthly rate exactly. Account spend for a month is the sum of its resources.
+Each resource has one monthly rate, chosen from a small AWS-like price list and kept stable for that resource id. Daily line items split the projected rate across the days of the month, so the daily cents add back to that projection exactly. Account spend for a month is the sum of its resources. Unset power, schedule, and storage fields bill the list price, which is what the seed does.
 
 | Type | SKUs | Monthly rate |
 | --- | --- | --- |
@@ -71,6 +71,21 @@ make simulator-billing
 ```
 
 That prints March 2026 spend for each account. The daily-line total matches the sum of the monthly rates.
+
+## Regeneration
+
+Costs and metrics are derived again on every read from the resource as it is now. Repeating a query without another action returns the same numbers.
+
+| Current state | Cost projection | Metrics |
+| --- | --- | --- |
+| Compute `running` and `always_on` | Full monthly SKU rate | Seeded profile |
+| Compute `stopped` | 0 | Every sample is 0 |
+| Compute `weekdays-09-17` | `rate * 40 // 168` | 0 outside weekdays 09:00–17:00 UTC |
+| Compute SKU change | New SKU rate, same hours rule | Unchanged |
+| Object storage `infrequent_access` | Half the standard rate, integer division | Unchanged |
+| Other resources | List price | Unchanged |
+
+Rollback restores the previous field, and the next read uses that restored state. Historical seeded queries stay on the list price until an action changes the resource.
 
 ## Tags
 
