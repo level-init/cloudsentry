@@ -1,7 +1,7 @@
-"""Read-only HTTP API for the seeded company.
+"""HTTP reads for the simulator world.
 
-Mutations are intentionally absent. Callers page through inventory and ask
-for metrics, costs, tags, dependencies, and incidents per resource.
+Callers page through inventory and ask for metrics, costs, tags,
+dependencies, and incidents per resource.
 """
 
 from datetime import datetime, timedelta
@@ -10,11 +10,10 @@ from fastapi import APIRouter, FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
 from simulator.billing import CostLine, daily_costs
-from simulator.dependencies import DependencyGraph, dependency_graph
-from simulator.incidents import Incident, incidents_for, seed_incidents
+from simulator.incidents import Incident, incidents_for
 from simulator.metrics import HISTORY_END, history_start, query_metrics
 from simulator.model import Inventory, SimResource
-from simulator.seed import seed_company
+from simulator.world import World
 
 router = APIRouter()
 
@@ -34,15 +33,12 @@ class CostReport(BaseModel):
     lines: list[CostLine]
 
 
-def mount_read_api(app: FastAPI) -> None:
-    inventory = seed_company()
-    graph = dependency_graph(inventory)
-    incidents = seed_incidents(inventory)
-    app.state.inventory = inventory
-    app.include_router(_routes(inventory, graph, incidents))
+def mount_read_api(app: FastAPI, world: World) -> None:
+    app.state.world = world
+    app.include_router(_routes(world))
 
 
-def _routes(inventory: Inventory, graph: DependencyGraph, incidents: list[Incident]) -> APIRouter:
+def _routes(world: World) -> APIRouter:
     api = APIRouter()
 
     @api.get("/resources", tags=["inventory"], summary="List seeded resources")
@@ -54,6 +50,7 @@ def _routes(inventory: Inventory, graph: DependencyGraph, incidents: list[Incide
         limit: int = Query(default=200, ge=1, le=500),
         offset: int = Query(default=0, ge=0),
     ) -> ResourcePage:
+        inventory = world.inventory
         matched = [
             resource
             for resource in inventory.resources
@@ -68,11 +65,11 @@ def _routes(inventory: Inventory, graph: DependencyGraph, incidents: list[Incide
 
     @api.get("/resources/{resource_id}", tags=["inventory"], summary="Fetch one resource")
     def get_resource(resource_id: str) -> SimResource:
-        return _resource_or_404(inventory, resource_id)
+        return _resource_or_404(world.inventory, resource_id)
 
     @api.get("/resources/{resource_id}/tags", tags=["inventory"], summary="Tags for one resource")
     def get_tags(resource_id: str) -> dict[str, str]:
-        return _resource_or_404(inventory, resource_id).tags
+        return _resource_or_404(world.inventory, resource_id).tags
 
     @api.get("/resources/{resource_id}/metrics", tags=["metrics"], summary="Hourly metrics")
     def get_metrics(
@@ -81,11 +78,11 @@ def _routes(inventory: Inventory, graph: DependencyGraph, incidents: list[Incide
         end: datetime | None = None,
         name: str | None = None,
     ) -> list:
-        _resource_or_404(inventory, resource_id)
+        _resource_or_404(world.inventory, resource_id)
         window_start, window_end = _metric_window(start, end)
         try:
             return query_metrics(
-                inventory,
+                world.inventory,
                 resource_id,
                 start=window_start,
                 end=window_end,
@@ -100,10 +97,10 @@ def _routes(inventory: Inventory, graph: DependencyGraph, incidents: list[Incide
         year: int = 2026,
         month: int = Query(default=3, ge=1, le=12),
     ) -> CostReport:
-        resource = _resource_or_404(inventory, resource_id)
+        resource = _resource_or_404(world.inventory, resource_id)
         lines = [
             line
-            for line in daily_costs(inventory, resource.account_id, year, month)
+            for line in daily_costs(world.inventory, resource.account_id, year, month)
             if line.resource_id == resource_id
         ]
         return CostReport(
@@ -120,8 +117,8 @@ def _routes(inventory: Inventory, graph: DependencyGraph, incidents: list[Incide
         summary="Resources this resource depends on",
     )
     def get_dependencies(resource_id: str) -> list:
-        _resource_or_404(inventory, resource_id)
-        return graph.dependencies(resource_id)
+        _resource_or_404(world.inventory, resource_id)
+        return world.graph.dependencies(resource_id)
 
     @api.get(
         "/resources/{resource_id}/dependents",
@@ -129,8 +126,8 @@ def _routes(inventory: Inventory, graph: DependencyGraph, incidents: list[Incide
         summary="Resources that depend on this resource",
     )
     def get_dependents(resource_id: str) -> list:
-        _resource_or_404(inventory, resource_id)
-        return graph.dependents(resource_id)
+        _resource_or_404(world.inventory, resource_id)
+        return world.graph.dependents(resource_id)
 
     @api.get(
         "/resources/{resource_id}/incidents",
@@ -138,8 +135,8 @@ def _routes(inventory: Inventory, graph: DependencyGraph, incidents: list[Incide
         summary="Incidents for one resource",
     )
     def get_incidents(resource_id: str) -> list[Incident]:
-        _resource_or_404(inventory, resource_id)
-        return incidents_for(inventory, incidents, resource_id)
+        _resource_or_404(world.inventory, resource_id)
+        return incidents_for(world.inventory, world.incidents, resource_id)
 
     return api
 

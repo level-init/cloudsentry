@@ -1,6 +1,6 @@
 # CloudSentry Simulator
 
-AWS-like fake cloud. Accounts, environments, and resources live in an in-memory inventory (`simulator.model`). The HTTP service is read-only. This package does not import the API or the worker.
+AWS-like fake cloud. Accounts, environments, and resources live in an in-memory inventory (`simulator.model`). The HTTP service can read that world and apply a small set of actions that roll back. This package does not import the API or the worker, and it does not call AWS.
 
 ## Inventory model
 
@@ -136,5 +136,25 @@ curl -s http://127.0.0.1:8001/resources/i-prd-005/incidents
 ```
 
 `/health` returns `{"status":"ok"}`. `/resources` returns the 180-resource company. Metrics default to the first day of seeded history. Costs default to March 2026. Interactive docs are at [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs). Filters: `environment`, `account_id`, `resource_type`, and `scenario`.
+
+## Actions
+
+| Action | Path | Applies to |
+| --- | --- | --- |
+| Stop | `POST /resources/{id}/actions/stop` | Running compute |
+| Start | `POST /resources/{id}/actions/start` | Stopped compute |
+| Resize | `POST /resources/{id}/actions/resize` | Compute, body `{"sku":"m5.large"}` |
+| Schedule | `POST /resources/{id}/actions/schedule` | Development compute, body `{"schedule":"weekdays-09-17"}` |
+| Delete unattached | `POST /resources/{id}/actions/delete-unattached` | Disk with no dependents |
+| Storage lifecycle | `POST /resources/{id}/actions/storage-lifecycle` | Object storage, body `{"storage_class":"infrequent_access"}` |
+| Rollback | `POST /actions/{action_id}/rollback` | A previous action |
+
+Illegal actions return 400 with a short detail. Unknown resources and unknown action ids return 404. Rollback writes the previous field back. A second rollback of the same action is rejected.
+
+```bash
+curl -s -X POST http://127.0.0.1:8001/resources/i-dev-026/actions/schedule \
+  -H 'content-type: application/json' \
+  -d '{"schedule":"weekdays-09-17"}'
+```
 
 Stop the server with Ctrl+C.
