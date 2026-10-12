@@ -110,6 +110,14 @@ class Dependency(BaseModel):
         return self
 
 
+class DependencyList(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resource_id: str = Field(min_length=1)
+    items: list[Dependency]
+    total: int = Field(ge=0)
+
+
 class Incident(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
