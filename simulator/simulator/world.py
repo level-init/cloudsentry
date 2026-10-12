@@ -1,10 +1,14 @@
 """Mutable simulator world.
 
 The seed is copied once. Actions change that copy and remember the prior
-field so rollback can restore it. This does not call AWS.
+field so rollback can restore it. The clock starts at the end of seeded
+history and moves only through set or advance. This does not call AWS.
 """
 
+from datetime import datetime, timedelta
+
 from simulator.billing import sku_for
+from simulator.clock import initial_now, require_clock
 from simulator.dependencies import DependencyGraph, dependency_graph
 from simulator.incidents import Incident, seed_incidents
 from simulator.model import Inventory, ResourceType, SimResource
@@ -45,6 +49,18 @@ class World:
         self.incidents: list[Incident] = seed_incidents(self.inventory)
         self._mutations: dict[str, Mutation] = {}
         self._next_action = 1
+        self.now = initial_now()
+
+    def advance_days(self, days: int) -> datetime:
+        if days < 1:
+            raise ValueError("days must be positive")
+        self.now = self.now + timedelta(days=days)
+        return self.now
+
+    def set_clock(self, now: datetime) -> datetime:
+        require_clock(now)
+        self.now = now
+        return self.now
 
     def stop(self, resource_id: str) -> Mutation:
         resource = self._require(resource_id)

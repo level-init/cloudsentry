@@ -38,7 +38,7 @@ That command rebuilds the in-memory company from RNG seed `30`. Running it again
 
 ## Metrics
 
-Hourly samples cover the 120 days ending 2026-04-01 UTC. Compute has CPU, memory, network, and request series. Databases, load balancers, clusters, and object storage have the series that apply to them. Disks and snapshots do not.
+Hourly samples cover the 120 days ending 2026-04-01 UTC, which is where the simulator clock starts. Compute has CPU, memory, network, and request series. Databases, load balancers, clusters, and object storage have the series that apply to them. Disks and snapshots do not. Later days exist only after the clock moves past them.
 
 Each compute resource follows one stable profile. `steady_low` and `steady_mid` stay near a flat level, with a slow 30-day seasonal swing. `business_hours` rises on weekdays from 09:00 to 17:00 UTC. `spike_trap` stays low except for a Wednesday 15:00 UTC spike, so the peak is several times the average.
 
@@ -150,7 +150,22 @@ curl -s http://127.0.0.1:8001/resources/i-prd-000/dependencies
 curl -s http://127.0.0.1:8001/resources/i-prd-005/incidents
 ```
 
-`/health` returns `{"status":"ok"}`. `/resources` returns the 180-resource company. Metrics default to the first day of seeded history. Costs default to March 2026. Interactive docs are at [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs). Filters: `environment`, `account_id`, `resource_type`, and `scenario`.
+`/health` returns `{"status":"ok"}`. `/resources` returns the 180-resource company. Metrics default to the 24 hours ending at the clock. Costs default to the month of the last observed day, which is March 2026 until the clock moves. Interactive docs are at [http://127.0.0.1:8001/docs](http://127.0.0.1:8001/docs). Filters: `environment`, `account_id`, `resource_type`, and `scenario`.
+
+## Clock
+
+The clock starts at 2026-04-01 00:00 UTC. A day or hour is visible only when it is earlier than `now`. `GET /clock` reads it. `PUT /clock` sets it to a UTC timestamp after the start of seeded history. `POST /clock/advance` moves it forward by whole days. Setting the same timestamp again leaves it unchanged. Advancing is deterministic: the same start plus the same number of days always lands on the same instant.
+
+Advancing 7 days from the start makes 2026-04-01 through 2026-04-07 observable. The default metric window becomes the last 24 hours before the new clock, and April cost lines appear for those seven days. March stays a full month because it is already behind the clock. Days after the clock are omitted, not billed as zero.
+
+```bash
+curl -s http://127.0.0.1:8001/clock
+curl -s -X POST http://127.0.0.1:8001/clock/advance \
+  -H 'content-type: application/json' \
+  -d '{"days":7}'
+curl -s 'http://127.0.0.1:8001/resources/i-dev-062/metrics?name=cpu_percent&start=2026-04-01T00:00:00Z&end=2026-04-08T00:00:00Z'
+curl -s 'http://127.0.0.1:8001/resources/i-dev-062/costs?year=2026&month=4'
+```
 
 ## Actions
 

@@ -10,8 +10,9 @@ from fastapi import APIRouter, FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
 from simulator.billing import CostLine, daily_costs
+from simulator.clock import last_observed_day
 from simulator.incidents import Incident, incidents_for
-from simulator.metrics import HISTORY_END, history_start, query_metrics
+from simulator.metrics import history_start, query_metrics
 from simulator.model import Inventory, SimResource
 from simulator.world import World
 
@@ -79,7 +80,7 @@ def _routes(world: World) -> APIRouter:
         name: str | None = None,
     ) -> list:
         _resource_or_404(world.inventory, resource_id)
-        window_start, window_end = _metric_window(start, end)
+        window_start, window_end = _metric_window(start, end, world.now)
         try:
             return query_metrics(
                 world.inventory,
@@ -94,13 +95,24 @@ def _routes(world: World) -> APIRouter:
     @api.get("/resources/{resource_id}/costs", tags=["billing"], summary="Daily costs for a month")
     def get_costs(
         resource_id: str,
-        year: int = 2026,
-        month: int = Query(default=3, ge=1, le=12),
+        year: int | None = None,
+        month: int | None = None,
     ) -> CostReport:
         resource = _resource_or_404(world.inventory, resource_id)
+        observed = last_observed_day(world.now)
+        if year is None and month is None:
+            year, month = observed.year, observed.month
+        elif year is None or month is None or not 1 <= month <= 12:
+            raise HTTPException(status_code=400, detail="year and month must be a real month")
         lines = [
             line
-            for line in daily_costs(world.inventory, resource.account_id, year, month)
+            for line in daily_costs(
+                world.inventory,
+                resource.account_id,
+                year,
+                month,
+                through=observed,
+            )
             if line.resource_id == resource_id
         ]
         return CostReport(
@@ -166,12 +178,17 @@ def _resource_or_404(inventory: Inventory, resource_id: str) -> SimResource:
     return resource
 
 
-def _metric_window(start: datetime | None, end: datetime | None) -> tuple[datetime, datetime]:
+def _metric_window(
+    start: datetime | None,
+    end: datetime | None,
+    now: datetime,
+) -> tuple[datetime, datetime]:
     if start is None and end is None:
-        window_start = history_start()
-        return window_start, window_start + timedelta(days=1)
+        window_end = now
+        window_start = max(history_start(), window_end - timedelta(days=1))
+        return window_start, window_end
     if start is None or end is None:
         raise HTTPException(status_code=400, detail="start and end must be set together")
-    if end > HISTORY_END or start < history_start():
-        raise HTTPException(status_code=400, detail="metric window is outside seeded history")
+    if start < history_start() or end > now:
+        raise HTTPException(status_code=400, detail="metric window is outside the simulator clock")
     return start, end
