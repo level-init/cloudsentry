@@ -80,10 +80,19 @@ class ResourceRepository:
             return None
         return _resource_from_row(row)
 
-    def list(self, environment: str | None = None) -> list[Resource]:
+    def list(
+        self,
+        environment: str | None = None,
+        account_id: str | None = None,
+        resource_type: str | None = None,
+    ) -> list[Resource]:
         statement = select(ResourceRow)
         if environment is not None:
             statement = statement.where(ResourceRow.environment == environment)
+        if account_id is not None:
+            statement = statement.where(ResourceRow.account_id == account_id)
+        if resource_type is not None:
+            statement = statement.where(ResourceRow.resource_type == resource_type)
         rows = self.session.scalars(statement.order_by(ResourceRow.resource_id)).all()
         return [_resource_from_row(row) for row in rows]
 
@@ -126,6 +135,31 @@ class MetricRollupRepository:
         average = sum(row.avg_value for row in rows) / len(rows)
         peak = max(row.peak_value for row in rows)
         return average, peak
+
+    def utilization(
+        self,
+        resource_ids: list[str],
+        name: str,
+        start: date,
+        end: date,
+    ) -> dict[str, tuple[float, float]]:
+        if not resource_ids or end <= start:
+            return {}
+        rows = self.session.execute(
+            select(
+                MetricRollupRow.resource_id,
+                func.avg(MetricRollupRow.avg_value),
+                func.max(MetricRollupRow.peak_value),
+            )
+            .where(
+                MetricRollupRow.resource_id.in_(resource_ids),
+                MetricRollupRow.name == name,
+                MetricRollupRow.day >= start,
+                MetricRollupRow.day < end,
+            )
+            .group_by(MetricRollupRow.resource_id)
+        ).all()
+        return {resource_id: (float(average), float(peak)) for resource_id, average, peak in rows}
 
     def count(self, resource_id: str, name: str) -> int:
         return int(
@@ -175,6 +209,33 @@ class CostRecordRepository:
             statement = statement.where(ResourceRow.account_id == account_id)
         amounts = self.session.scalars(statement).all()
         return sum(_cents(amount) for amount in amounts)
+
+    def monthly_cents_by_resource(
+        self,
+        year: int,
+        month: int,
+        resource_ids: list[str],
+    ) -> dict[str, int]:
+        if not resource_ids:
+            return {}
+        start, end = _month_bounds(year, month)
+        rows = self.session.execute(
+            select(CostRecordRow.resource_id, CostRecordRow.amount).where(
+                CostRecordRow.resource_id.in_(resource_ids),
+                CostRecordRow.period_start >= start,
+                CostRecordRow.period_start < end,
+            )
+        ).all()
+        totals: dict[str, int] = {}
+        for resource_id, amount in rows:
+            totals[resource_id] = totals.get(resource_id, 0) + _cents(amount)
+        return totals
+
+    def latest_month(self) -> tuple[int, int] | None:
+        latest = self.session.scalar(select(func.max(CostRecordRow.period_start)))
+        if latest is None:
+            return None
+        return latest.year, latest.month
 
     def count(self, resource_id: str) -> int:
         return int(
