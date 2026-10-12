@@ -1,6 +1,7 @@
 import logging
 import sys
 
+from worker.billing_ingest import ingest_billing
 from worker.config import get_settings
 from worker.inventory import ingest_inventory
 from worker.metric_ingest import ingest_metrics
@@ -34,6 +35,15 @@ def main() -> None:
             counts.updated,
             counts.rollups,
             counts.resources_with_series,
+        )
+        return
+    if sys.argv[1:] == ["ingest-billing"]:
+        counts = ingest_billing()
+        logging.info(
+            "billing ingest created=%s updated=%s records=%s",
+            counts.created,
+            counts.updated,
+            counts.records,
         )
         return
     raise SystemExit(f"unknown command {sys.argv[1]}")

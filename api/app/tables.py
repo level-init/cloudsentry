@@ -57,6 +57,13 @@ class MetricRollupRow(Base):
 
 class CostRecordRow(Base):
     __tablename__ = "cost_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "resource_id",
+            "period_start",
+            name="uq_cost_records_resource_period",
+        ),
+    )
 
     cost_record_id: Mapped[int] = mapped_column(primary_key=True)
     resource_id: Mapped[str] = mapped_column(ForeignKey("resources.resource_id"), nullable=False)

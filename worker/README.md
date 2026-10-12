@@ -49,3 +49,15 @@ make ingest-metrics
 ```
 
 That runs `python -m worker.main ingest-metrics`. The log line is `metrics ingest created=N updated=M rollups=R resources=S`.
+
+## Billing
+
+Each simulator daily line becomes one `cost_records` row linked to its resource. `amount` is dollars (`cents / 100`). `period_start` is that UTC day and `period_end` is the next UTC day. The job reads December 2025 through the last day before the simulator clock. March 2026 is a full month when the clock is still 2026-04-01. Run inventory ingestion first.
+
+`monthly_cents(year, month)` sums those rows back to integer cents for one resource or one account. That sum matches the simulator month total. A second run updates the same resource and period, so the row count does not grow.
+
+```bash
+make ingest-billing
+```
+
+That runs `python -m worker.main ingest-billing`. The log line is `billing ingest created=N updated=M records=R`.
