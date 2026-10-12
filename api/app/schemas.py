@@ -6,7 +6,7 @@ Database tables for these models are created by `make migrate`.
 The SQLAlchemy mappings live in `app.tables`.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -41,6 +41,65 @@ class Resource(BaseModel):
     team: str = Field(min_length=1)
     business_criticality: BusinessCriticality
     tags: dict[str, str] = Field(default_factory=dict)
+    present: bool = True
+
+
+class ResourceSummary(Resource):
+    monthly_cost_cents: int = Field(ge=0)
+    cpu_avg: float | None = None
+    cpu_peak: float | None = None
+    year: int | None = None
+    month: int | None = Field(default=None, ge=1, le=12)
+
+
+class ResourceList(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ResourceSummary]
+    total: int = Field(ge=0)
+
+
+class AccountSpend(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: str = Field(min_length=1)
+    monthly_cost_cents: int = Field(ge=0)
+
+
+class EnvironmentSpend(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    environment: Environment
+    monthly_cost_cents: int = Field(ge=0)
+
+
+class AccountSpendReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    year: int | None = None
+    month: int | None = Field(default=None, ge=1, le=12)
+    items: list[AccountSpend]
+    total_cents: int = Field(ge=0)
+
+
+class EnvironmentSpendReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    year: int | None = None
+    month: int | None = Field(default=None, ge=1, le=12)
+    items: list[EnvironmentSpend]
+    total_cents: int = Field(ge=0)
+
+
+class MetricRollup(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resource_id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    day: date
+    avg_value: float
+    peak_value: float
+    unit: str = Field(min_length=1)
 
 
 class Metric(BaseModel):
@@ -81,6 +140,14 @@ class Dependency(BaseModel):
         if self.source_resource_id == self.target_resource_id:
             raise ValueError("source_resource_id and target_resource_id must differ")
         return self
+
+
+class DependencyList(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resource_id: str = Field(min_length=1)
+    items: list[Dependency]
+    total: int = Field(ge=0)
 
 
 class Incident(BaseModel):

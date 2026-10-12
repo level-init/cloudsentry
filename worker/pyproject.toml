@@ -8,4 +8,4 @@ dependencies = [
 ]
 
 [project.scripts]
-cloudsentry-worker = "worker.main:run"
+cloudsentry-worker = "worker.main:main"

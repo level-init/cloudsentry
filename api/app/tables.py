@@ -1,8 +1,8 @@
 """SQLAlchemy tables for the inventory, proposal, and execution schemas."""
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -22,6 +22,9 @@ class ResourceRow(Base):
     team: Mapped[str] = mapped_column(String, nullable=False)
     business_criticality: Mapped[str] = mapped_column(String, nullable=False)
     tags: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    present: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
 
 
 class MetricRow(Base):
@@ -35,8 +38,35 @@ class MetricRow(Base):
     unit: Mapped[str] = mapped_column(String, nullable=False)
 
 
+class MetricRollupRow(Base):
+    __tablename__ = "metric_rollups"
+    __table_args__ = (
+        UniqueConstraint(
+            "resource_id",
+            "name",
+            "day",
+            name="uq_metric_rollups_resource_name_day",
+        ),
+    )
+
+    rollup_id: Mapped[int] = mapped_column(primary_key=True)
+    resource_id: Mapped[str] = mapped_column(ForeignKey("resources.resource_id"), nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    avg_value: Mapped[float] = mapped_column(Float, nullable=False)
+    peak_value: Mapped[float] = mapped_column(Float, nullable=False)
+    unit: Mapped[str] = mapped_column(String, nullable=False)
+
+
 class CostRecordRow(Base):
     __tablename__ = "cost_records"
+    __table_args__ = (
+        UniqueConstraint(
+            "resource_id",
+            "period_start",
+            name="uq_cost_records_resource_period",
+        ),
+    )
 
     cost_record_id: Mapped[int] = mapped_column(primary_key=True)
     resource_id: Mapped[str] = mapped_column(ForeignKey("resources.resource_id"), nullable=False)
@@ -48,6 +78,14 @@ class CostRecordRow(Base):
 
 class DependencyRow(Base):
     __tablename__ = "dependencies"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_resource_id",
+            "target_resource_id",
+            "relationship",
+            name="uq_dependencies_edge",
+        ),
+    )
 
     dependency_id: Mapped[int] = mapped_column(primary_key=True)
     source_resource_id: Mapped[str] = mapped_column(

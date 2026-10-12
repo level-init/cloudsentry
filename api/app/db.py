@@ -1,5 +1,7 @@
 """Database session helpers."""
 
+from collections.abc import Iterator
+
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -17,3 +19,11 @@ def create_session() -> Session:
     engine = create_engine(sqlalchemy_database_url())
     factory = sessionmaker(bind=engine)
     return factory()
+
+
+def get_session() -> Iterator[Session]:
+    session = create_session()
+    try:
+        yield session
+    finally:
+        session.close()

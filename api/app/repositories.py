@@ -1,6 +1,10 @@
 """Persistence for resources and optimization proposals."""
 
-from sqlalchemy import select
+from datetime import date, datetime, timezone
+from typing import TypeVar
+
+from sqlalchemy import func, select, tuple_
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.proposals import (
@@ -10,8 +14,17 @@ from app.proposals import (
     RiskAssessment,
     VerificationStatus,
 )
-from app.schemas import Resource
-from app.tables import FindingRow, ProposalRow, ResourceRow, RiskAssessmentRow
+from app.schemas import CostRecord, Dependency, Incident, MetricRollup, Resource
+from app.tables import (
+    CostRecordRow,
+    DependencyRow,
+    FindingRow,
+    IncidentRow,
+    MetricRollupRow,
+    ProposalRow,
+    ResourceRow,
+    RiskAssessmentRow,
+)
 
 
 class ResourceRepository:
@@ -29,10 +42,37 @@ class ResourceRepository:
                 team=resource.team,
                 business_criticality=resource.business_criticality.value,
                 tags=resource.tags,
+                present=True,
             )
         )
         self.session.flush()
         return resource
+
+    def upsert(self, resource: Resource) -> bool:
+        row = self.session.get(ResourceRow, resource.resource_id)
+        if row is None:
+            self.create(resource)
+            return True
+        row.resource_type = resource.resource_type
+        row.account_id = resource.account_id
+        row.environment = resource.environment.value
+        row.owner = resource.owner
+        row.team = resource.team
+        row.business_criticality = resource.business_criticality.value
+        row.tags = dict(resource.tags)
+        row.present = True
+        self.session.flush()
+        return False
+
+    def mark_absent(self, present_ids: set[str]) -> int:
+        rows = self.session.scalars(select(ResourceRow).where(ResourceRow.present.is_(True))).all()
+        marked = 0
+        for row in rows:
+            if row.resource_id not in present_ids:
+                row.present = False
+                marked += 1
+        self.session.flush()
+        return marked
 
     def get(self, resource_id: str) -> Resource | None:
         row = self.session.get(ResourceRow, resource_id)
@@ -40,12 +80,232 @@ class ResourceRepository:
             return None
         return _resource_from_row(row)
 
-    def list(self, environment: str | None = None) -> list[Resource]:
+    def list(
+        self,
+        environment: str | None = None,
+        account_id: str | None = None,
+        resource_type: str | None = None,
+    ) -> list[Resource]:
         statement = select(ResourceRow)
         if environment is not None:
             statement = statement.where(ResourceRow.environment == environment)
+        if account_id is not None:
+            statement = statement.where(ResourceRow.account_id == account_id)
+        if resource_type is not None:
+            statement = statement.where(ResourceRow.resource_type == resource_type)
         rows = self.session.scalars(statement.order_by(ResourceRow.resource_id)).all()
         return [_resource_from_row(row) for row in rows]
+
+
+class MetricRollupRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def upsert_many(self, rollups: list[MetricRollup]) -> tuple[int, int]:
+        if not rollups:
+            return 0, 0
+        created = 0
+        for chunk in _chunks(rollups, 500):
+            created += len(chunk) - _existing_rollups(self.session, chunk)
+            self.session.execute(_rollup_insert(chunk))
+        self.session.flush()
+        return created, len(rollups) - created
+
+    def summarize(
+        self,
+        resource_id: str,
+        name: str,
+        start: date,
+        end: date,
+    ) -> tuple[float, float]:
+        if end <= start:
+            raise ValueError("end must be after start")
+        rows = self.session.scalars(
+            select(MetricRollupRow)
+            .where(
+                MetricRollupRow.resource_id == resource_id,
+                MetricRollupRow.name == name,
+                MetricRollupRow.day >= start,
+                MetricRollupRow.day < end,
+            )
+            .order_by(MetricRollupRow.day)
+        ).all()
+        if not rows:
+            raise ValueError(f"no {name} rollups for {resource_id}")
+        average = sum(row.avg_value for row in rows) / len(rows)
+        peak = max(row.peak_value for row in rows)
+        return average, peak
+
+    def utilization(
+        self,
+        resource_ids: list[str],
+        name: str,
+        start: date,
+        end: date,
+    ) -> dict[str, tuple[float, float]]:
+        if not resource_ids or end <= start:
+            return {}
+        rows = self.session.execute(
+            select(
+                MetricRollupRow.resource_id,
+                func.avg(MetricRollupRow.avg_value),
+                func.max(MetricRollupRow.peak_value),
+            )
+            .where(
+                MetricRollupRow.resource_id.in_(resource_ids),
+                MetricRollupRow.name == name,
+                MetricRollupRow.day >= start,
+                MetricRollupRow.day < end,
+            )
+            .group_by(MetricRollupRow.resource_id)
+        ).all()
+        return {resource_id: (float(average), float(peak)) for resource_id, average, peak in rows}
+
+    def count(self, resource_id: str, name: str) -> int:
+        return int(
+            self.session.scalar(
+                select(func.count())
+                .select_from(MetricRollupRow)
+                .where(
+                    MetricRollupRow.resource_id == resource_id,
+                    MetricRollupRow.name == name,
+                )
+            )
+            or 0
+        )
+
+
+class CostRecordRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def upsert_many(self, records: list[CostRecord]) -> tuple[int, int]:
+        if not records:
+            return 0, 0
+        created = 0
+        for chunk in _chunks(records, 500):
+            created += len(chunk) - _existing_costs(self.session, chunk)
+            self.session.execute(_cost_insert(chunk))
+        self.session.flush()
+        return created, len(records) - created
+
+    def monthly_cents(
+        self,
+        year: int,
+        month: int,
+        *,
+        resource_id: str | None = None,
+        account_id: str | None = None,
+    ) -> int:
+        start, end = _month_bounds(year, month)
+        statement = (
+            select(CostRecordRow.amount)
+            .join(ResourceRow, ResourceRow.resource_id == CostRecordRow.resource_id)
+            .where(CostRecordRow.period_start >= start, CostRecordRow.period_start < end)
+        )
+        if resource_id is not None:
+            statement = statement.where(CostRecordRow.resource_id == resource_id)
+        if account_id is not None:
+            statement = statement.where(ResourceRow.account_id == account_id)
+        amounts = self.session.scalars(statement).all()
+        return sum(_cents(amount) for amount in amounts)
+
+    def monthly_cents_by_resource(
+        self,
+        year: int,
+        month: int,
+        resource_ids: list[str],
+    ) -> dict[str, int]:
+        if not resource_ids:
+            return {}
+        start, end = _month_bounds(year, month)
+        rows = self.session.execute(
+            select(CostRecordRow.resource_id, CostRecordRow.amount).where(
+                CostRecordRow.resource_id.in_(resource_ids),
+                CostRecordRow.period_start >= start,
+                CostRecordRow.period_start < end,
+            )
+        ).all()
+        totals: dict[str, int] = {}
+        for resource_id, amount in rows:
+            totals[resource_id] = totals.get(resource_id, 0) + _cents(amount)
+        return totals
+
+    def monthly_cents_by_account(self, year: int, month: int) -> dict[str, int]:
+        return _monthly_cents_grouped(self.session, year, month, ResourceRow.account_id)
+
+    def monthly_cents_by_environment(self, year: int, month: int) -> dict[str, int]:
+        return _monthly_cents_grouped(self.session, year, month, ResourceRow.environment)
+
+    def latest_month(self) -> tuple[int, int] | None:
+        latest = self.session.scalar(select(func.max(CostRecordRow.period_start)))
+        if latest is None:
+            return None
+        return latest.year, latest.month
+
+    def count(self, resource_id: str) -> int:
+        return int(
+            self.session.scalar(
+                select(func.count())
+                .select_from(CostRecordRow)
+                .where(CostRecordRow.resource_id == resource_id)
+            )
+            or 0
+        )
+
+
+class DependencyRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def upsert_many(self, edges: list[Dependency]) -> tuple[int, int]:
+        if not edges:
+            return 0, 0
+        created = 0
+        for chunk in _chunks(edges, 500):
+            created += len(chunk) - _existing_edges(self.session, chunk)
+            self.session.execute(_edge_insert(chunk))
+        self.session.flush()
+        return created, len(edges) - created
+
+    def dependencies_of(self, resource_id: str) -> list[Dependency]:
+        rows = self.session.scalars(
+            select(DependencyRow)
+            .where(DependencyRow.source_resource_id == resource_id)
+            .order_by(DependencyRow.relationship, DependencyRow.target_resource_id)
+        ).all()
+        return [_dependency_from_row(row) for row in rows]
+
+    def dependents_of(self, resource_id: str) -> list[Dependency]:
+        rows = self.session.scalars(
+            select(DependencyRow)
+            .where(DependencyRow.target_resource_id == resource_id)
+            .order_by(DependencyRow.relationship, DependencyRow.source_resource_id)
+        ).all()
+        return [_dependency_from_row(row) for row in rows]
+
+
+class IncidentRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def upsert_many(self, incidents: list[Incident]) -> tuple[int, int]:
+        if not incidents:
+            return 0, 0
+        created = 0
+        for chunk in _chunks(incidents, 500):
+            created += len(chunk) - _existing_incidents(self.session, chunk)
+            self.session.execute(_incident_insert(chunk))
+        self.session.flush()
+        return created, len(incidents) - created
+
+    def for_resource(self, resource_id: str) -> list[Incident]:
+        rows = self.session.scalars(
+            select(IncidentRow)
+            .where(IncidentRow.resource_id == resource_id)
+            .order_by(IncidentRow.started_at, IncidentRow.incident_id)
+        ).all()
+        return [_incident_from_row(row) for row in rows]
 
 
 class ProposalRepository:
@@ -106,6 +366,190 @@ class ProposalRepository:
         return self.get(proposal_id)
 
 
+_Item = TypeVar("_Item")
+
+
+def _chunks(items: list[_Item], size: int) -> list[list[_Item]]:
+    return [items[index : index + size] for index in range(0, len(items), size)]
+
+
+def _monthly_cents_grouped(session: Session, year: int, month: int, column) -> dict[str, int]:
+    start, end = _month_bounds(year, month)
+    rows = session.execute(
+        select(column, CostRecordRow.amount)
+        .join(ResourceRow, ResourceRow.resource_id == CostRecordRow.resource_id)
+        .where(CostRecordRow.period_start >= start, CostRecordRow.period_start < end)
+    ).all()
+    totals: dict[str, int] = {}
+    for key, amount in rows:
+        totals[key] = totals.get(key, 0) + _cents(amount)
+    return totals
+
+
+def _month_bounds(year: int, month: int) -> tuple[datetime, datetime]:
+    if not 1 <= month <= 12:
+        raise ValueError("month must be from 1 to 12")
+    start = datetime(year, month, 1, tzinfo=timezone.utc)
+    if month == 12:
+        end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+    return start, end
+
+
+def _cents(amount: float) -> int:
+    return int(round(amount * 100))
+
+
+def _existing_costs(session: Session, records: list[CostRecord]) -> int:
+    keys = [(record.resource_id, record.period_start) for record in records]
+    found = session.scalar(
+        select(func.count())
+        .select_from(CostRecordRow)
+        .where(tuple_(CostRecordRow.resource_id, CostRecordRow.period_start).in_(keys))
+    )
+    return int(found or 0)
+
+
+def _cost_insert(records: list[CostRecord]):
+    statement = insert(CostRecordRow).values(
+        [
+            {
+                "resource_id": record.resource_id,
+                "period_start": record.period_start,
+                "period_end": record.period_end,
+                "amount": record.amount,
+                "currency": record.currency,
+            }
+            for record in records
+        ]
+    )
+    return statement.on_conflict_do_update(
+        constraint="uq_cost_records_resource_period",
+        set_={
+            "period_end": statement.excluded.period_end,
+            "amount": statement.excluded.amount,
+            "currency": statement.excluded.currency,
+        },
+    )
+
+
+def _existing_rollups(session: Session, rollups: list[MetricRollup]) -> int:
+    keys = [(rollup.resource_id, rollup.name, rollup.day) for rollup in rollups]
+    found = session.scalar(
+        select(func.count())
+        .select_from(MetricRollupRow)
+        .where(
+            tuple_(MetricRollupRow.resource_id, MetricRollupRow.name, MetricRollupRow.day).in_(keys)
+        )
+    )
+    return int(found or 0)
+
+
+def _rollup_insert(rollups: list[MetricRollup]):
+    statement = insert(MetricRollupRow).values(
+        [
+            {
+                "resource_id": rollup.resource_id,
+                "name": rollup.name,
+                "day": rollup.day,
+                "avg_value": rollup.avg_value,
+                "peak_value": rollup.peak_value,
+                "unit": rollup.unit,
+            }
+            for rollup in rollups
+        ]
+    )
+    return statement.on_conflict_do_update(
+        constraint="uq_metric_rollups_resource_name_day",
+        set_={
+            "avg_value": statement.excluded.avg_value,
+            "peak_value": statement.excluded.peak_value,
+            "unit": statement.excluded.unit,
+        },
+    )
+
+
+def _existing_edges(session: Session, edges: list[Dependency]) -> int:
+    keys = [(edge.source_resource_id, edge.target_resource_id, edge.relationship) for edge in edges]
+    found = session.scalar(
+        select(func.count())
+        .select_from(DependencyRow)
+        .where(
+            tuple_(
+                DependencyRow.source_resource_id,
+                DependencyRow.target_resource_id,
+                DependencyRow.relationship,
+            ).in_(keys)
+        )
+    )
+    return int(found or 0)
+
+
+def _edge_insert(edges: list[Dependency]):
+    statement = insert(DependencyRow).values(
+        [
+            {
+                "source_resource_id": edge.source_resource_id,
+                "target_resource_id": edge.target_resource_id,
+                "relationship": edge.relationship,
+            }
+            for edge in edges
+        ]
+    )
+    return statement.on_conflict_do_nothing(constraint="uq_dependencies_edge")
+
+
+def _existing_incidents(session: Session, incidents: list[Incident]) -> int:
+    keys = [incident.incident_id for incident in incidents]
+    found = session.scalar(
+        select(func.count()).select_from(IncidentRow).where(IncidentRow.incident_id.in_(keys))
+    )
+    return int(found or 0)
+
+
+def _incident_insert(incidents: list[Incident]):
+    statement = insert(IncidentRow).values(
+        [
+            {
+                "incident_id": incident.incident_id,
+                "resource_id": incident.resource_id,
+                "severity": incident.severity.value,
+                "started_at": incident.started_at,
+                "summary": incident.summary,
+            }
+            for incident in incidents
+        ]
+    )
+    return statement.on_conflict_do_update(
+        index_elements=["incident_id"],
+        set_={
+            "resource_id": statement.excluded.resource_id,
+            "severity": statement.excluded.severity,
+            "started_at": statement.excluded.started_at,
+            "summary": statement.excluded.summary,
+        },
+    )
+
+
+def _dependency_from_row(row: DependencyRow) -> Dependency:
+    return Dependency(
+        source_resource_id=row.source_resource_id,
+        target_resource_id=row.target_resource_id,
+        relationship=row.relationship,
+    )
+
+
+def _incident_from_row(row: IncidentRow) -> Incident:
+    return Incident(
+        incident_id=row.incident_id,
+        resource_id=row.resource_id,
+        severity=row.severity,
+        started_at=row.started_at,
+        summary=row.summary,
+    )
+
+
 def _resource_from_row(row: ResourceRow) -> Resource:
     return Resource(
         resource_id=row.resource_id,
@@ -116,6 +560,7 @@ def _resource_from_row(row: ResourceRow) -> Resource:
         team=row.team,
         business_criticality=row.business_criticality,
         tags=row.tags,
+        present=row.present,
     )
 
 
