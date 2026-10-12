@@ -6,7 +6,7 @@ Database tables for these models are created by `make migrate`.
 The SQLAlchemy mappings live in `app.tables`.
 """
 
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -41,6 +41,17 @@ class Resource(BaseModel):
     team: str = Field(min_length=1)
     business_criticality: BusinessCriticality
     tags: dict[str, str] = Field(default_factory=dict)
+
+
+class MetricRollup(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resource_id: str = Field(min_length=1)
+    name: str = Field(min_length=1)
+    day: date
+    avg_value: float
+    peak_value: float
+    unit: str = Field(min_length=1)
 
 
 class Metric(BaseModel):

@@ -3,6 +3,7 @@ import sys
 
 from worker.config import get_settings
 from worker.inventory import ingest_inventory
+from worker.metric_ingest import ingest_metrics
 
 
 def run() -> None:
@@ -23,6 +24,16 @@ def main() -> None:
             counts.created,
             counts.updated,
             counts.total,
+        )
+        return
+    if sys.argv[1:] == ["ingest-metrics"]:
+        counts = ingest_metrics()
+        logging.info(
+            "metrics ingest created=%s updated=%s rollups=%s resources=%s",
+            counts.created,
+            counts.updated,
+            counts.rollups,
+            counts.resources_with_series,
         )
         return
     raise SystemExit(f"unknown command {sys.argv[1]}")

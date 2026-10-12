@@ -1,8 +1,8 @@
 """SQLAlchemy tables for the inventory, proposal, and execution schemas."""
 
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, String, Text
+from sqlalchemy import Date, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -32,6 +32,26 @@ class MetricRow(Base):
     name: Mapped[str] = mapped_column(String, nullable=False)
     timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     value: Mapped[float] = mapped_column(Float, nullable=False)
+    unit: Mapped[str] = mapped_column(String, nullable=False)
+
+
+class MetricRollupRow(Base):
+    __tablename__ = "metric_rollups"
+    __table_args__ = (
+        UniqueConstraint(
+            "resource_id",
+            "name",
+            "day",
+            name="uq_metric_rollups_resource_name_day",
+        ),
+    )
+
+    rollup_id: Mapped[int] = mapped_column(primary_key=True)
+    resource_id: Mapped[str] = mapped_column(ForeignKey("resources.resource_id"), nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    day: Mapped[date] = mapped_column(Date, nullable=False)
+    avg_value: Mapped[float] = mapped_column(Float, nullable=False)
+    peak_value: Mapped[float] = mapped_column(Float, nullable=False)
     unit: Mapped[str] = mapped_column(String, nullable=False)
 
 

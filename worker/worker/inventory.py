@@ -60,7 +60,7 @@ def fetch_resources(base_url: str, *, page_size: int = _PAGE_SIZE) -> list[dict]
     offset = 0
     total: int | None = None
     while total is None or offset < total:
-        page = _get_json(f"{base_url}/resources?limit={page_size}&offset={offset}")
+        page = get_json(f"{base_url}/resources?limit={page_size}&offset={offset}")
         batch = page["items"]
         total = int(page["total"])
         if not batch:
@@ -90,9 +90,9 @@ def resource_from_simulator(payload: dict) -> Resource:
     )
 
 
-def _get_json(url: str) -> dict:
+def get_json(url: str, *, timeout: int = 30) -> dict:
     try:
-        with urlopen(url, timeout=30) as response:
+        with urlopen(url, timeout=timeout) as response:
             return json.load(response)
     except (HTTPError, URLError, TimeoutError) as exc:
         raise ValueError(f"simulator request failed for {url}") from exc

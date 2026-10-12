@@ -78,6 +78,7 @@ make run-worker
 | `make run-web` | http://localhost:3000 |
 | `make run-worker` | logs `worker ok`, then exits |
 | `make ingest-inventory` | copies simulator resources into Postgres |
+| `make ingest-metrics` | copies simulator metrics into daily rollups |
 
 `make seed-simulator` rebuilds the in-memory company: 3 accounts and 180 resources.
 

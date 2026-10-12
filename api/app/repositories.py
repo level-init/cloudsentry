@@ -1,6 +1,9 @@
 """Persistence for resources and optimization proposals."""
 
-from sqlalchemy import select
+from datetime import date
+
+from sqlalchemy import func, select, tuple_
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.proposals import (
@@ -10,8 +13,8 @@ from app.proposals import (
     RiskAssessment,
     VerificationStatus,
 )
-from app.schemas import Resource
-from app.tables import FindingRow, ProposalRow, ResourceRow, RiskAssessmentRow
+from app.schemas import MetricRollup, Resource
+from app.tables import FindingRow, MetricRollupRow, ProposalRow, ResourceRow, RiskAssessmentRow
 
 
 class ResourceRepository:
@@ -61,6 +64,59 @@ class ResourceRepository:
             statement = statement.where(ResourceRow.environment == environment)
         rows = self.session.scalars(statement.order_by(ResourceRow.resource_id)).all()
         return [_resource_from_row(row) for row in rows]
+
+
+class MetricRollupRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def upsert_many(self, rollups: list[MetricRollup]) -> tuple[int, int]:
+        if not rollups:
+            return 0, 0
+        created = 0
+        for chunk in _chunks(rollups, 500):
+            created += len(chunk) - _existing_rollups(self.session, chunk)
+            self.session.execute(_rollup_insert(chunk))
+        self.session.flush()
+        return created, len(rollups) - created
+
+    def summarize(
+        self,
+        resource_id: str,
+        name: str,
+        start: date,
+        end: date,
+    ) -> tuple[float, float]:
+        if end <= start:
+            raise ValueError("end must be after start")
+        rows = self.session.scalars(
+            select(MetricRollupRow)
+            .where(
+                MetricRollupRow.resource_id == resource_id,
+                MetricRollupRow.name == name,
+                MetricRollupRow.day >= start,
+                MetricRollupRow.day < end,
+            )
+            .order_by(MetricRollupRow.day)
+        ).all()
+        if not rows:
+            raise ValueError(f"no {name} rollups for {resource_id}")
+        average = sum(row.avg_value for row in rows) / len(rows)
+        peak = max(row.peak_value for row in rows)
+        return average, peak
+
+    def count(self, resource_id: str, name: str) -> int:
+        return int(
+            self.session.scalar(
+                select(func.count())
+                .select_from(MetricRollupRow)
+                .where(
+                    MetricRollupRow.resource_id == resource_id,
+                    MetricRollupRow.name == name,
+                )
+            )
+            or 0
+        )
 
 
 class ProposalRepository:
@@ -119,6 +175,46 @@ class ProposalRepository:
             row.verification_status = verification_status.value
         self.session.flush()
         return self.get(proposal_id)
+
+
+def _chunks(rollups: list[MetricRollup], size: int) -> list[list[MetricRollup]]:
+    return [rollups[index : index + size] for index in range(0, len(rollups), size)]
+
+
+def _existing_rollups(session: Session, rollups: list[MetricRollup]) -> int:
+    keys = [(rollup.resource_id, rollup.name, rollup.day) for rollup in rollups]
+    found = session.scalar(
+        select(func.count())
+        .select_from(MetricRollupRow)
+        .where(
+            tuple_(MetricRollupRow.resource_id, MetricRollupRow.name, MetricRollupRow.day).in_(keys)
+        )
+    )
+    return int(found or 0)
+
+
+def _rollup_insert(rollups: list[MetricRollup]):
+    statement = insert(MetricRollupRow).values(
+        [
+            {
+                "resource_id": rollup.resource_id,
+                "name": rollup.name,
+                "day": rollup.day,
+                "avg_value": rollup.avg_value,
+                "peak_value": rollup.peak_value,
+                "unit": rollup.unit,
+            }
+            for rollup in rollups
+        ]
+    )
+    return statement.on_conflict_do_update(
+        constraint="uq_metric_rollups_resource_name_day",
+        set_={
+            "avg_value": statement.excluded.avg_value,
+            "peak_value": statement.excluded.peak_value,
+            "unit": statement.excluded.unit,
+        },
+    )
 
 
 def _resource_from_row(row: ResourceRow) -> Resource:
