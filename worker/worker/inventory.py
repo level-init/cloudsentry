@@ -4,7 +4,8 @@ One database row per resource returned by GET /resources. owner, team, and
 business_criticality are the owner, team, and criticality tags. Simulator
 fields that are not columns (name, sku, power_state, schedule, storage_class)
 are left behind. Metrics and billing are not ingested. A second run updates
-the same resource ids, so the row count stays equal to the simulator total.
+the same resource ids. A resource missing from that full list is marked
+present=false and kept, along with its history.
 """
 
 import json
@@ -27,6 +28,7 @@ class IngestCounts:
     created: int
     updated: int
     total: int
+    absent: int
 
 
 def ingest_inventory(base_url: str | None = None) -> IngestCounts:
@@ -52,7 +54,8 @@ def ingest_resources(session: Session, resources: list[Resource]) -> IngestCount
         if repository.upsert(resource):
             created += 1
     total = len(resources)
-    return IngestCounts(created=created, updated=total - created, total=total)
+    absent = repository.mark_absent({resource.resource_id for resource in resources})
+    return IngestCounts(created=created, updated=total - created, total=total, absent=absent)
 
 
 def fetch_resources(base_url: str, *, page_size: int = _PAGE_SIZE) -> list[dict]:

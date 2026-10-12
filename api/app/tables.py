@@ -2,7 +2,7 @@
 
 from datetime import date, datetime
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -22,6 +22,9 @@ class ResourceRow(Base):
     team: Mapped[str] = mapped_column(String, nullable=False)
     business_criticality: Mapped[str] = mapped_column(String, nullable=False)
     tags: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    present: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
 
 
 class MetricRow(Base):

@@ -42,6 +42,7 @@ class ResourceRepository:
                 team=resource.team,
                 business_criticality=resource.business_criticality.value,
                 tags=resource.tags,
+                present=True,
             )
         )
         self.session.flush()
@@ -59,8 +60,19 @@ class ResourceRepository:
         row.team = resource.team
         row.business_criticality = resource.business_criticality.value
         row.tags = dict(resource.tags)
+        row.present = True
         self.session.flush()
         return False
+
+    def mark_absent(self, present_ids: set[str]) -> int:
+        rows = self.session.scalars(select(ResourceRow).where(ResourceRow.present.is_(True))).all()
+        marked = 0
+        for row in rows:
+            if row.resource_id not in present_ids:
+                row.present = False
+                marked += 1
+        self.session.flush()
+        return marked
 
     def get(self, resource_id: str) -> Resource | None:
         row = self.session.get(ResourceRow, resource_id)
@@ -468,6 +480,7 @@ def _resource_from_row(row: ResourceRow) -> Resource:
         team=row.team,
         business_criticality=row.business_criticality,
         tags=row.tags,
+        present=row.present,
     )
 
 
