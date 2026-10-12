@@ -16,4 +16,6 @@ def test_openapi_documents_health_and_resource_groups() -> None:
     assert schema["info"]["title"] == "CloudSentry API"
     assert health["tags"] == ["system"]
     assert health["summary"] == "Liveness check"
+    assert schema["paths"]["/resources"]["get"]["tags"] == ["inventory"]
+    assert schema["paths"]["/resources/{resource_id}"]["get"]["tags"] == ["inventory"]
     assert {"system", "inventory", "proposals"} <= tag_names

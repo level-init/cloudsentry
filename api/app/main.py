@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 
 from app.config import get_settings
+from app.resource_api import router as resource_router
 
 OPENAPI_TAGS = [
     {"name": "system", "description": "Process health."},
@@ -32,6 +33,7 @@ def create_app() -> FastAPI:
         ),
         openapi_tags=OPENAPI_TAGS,
     )
+    app.include_router(resource_router)
 
     @app.get(
         "/health",

@@ -44,6 +44,21 @@ class Resource(BaseModel):
     present: bool = True
 
 
+class ResourceSummary(Resource):
+    monthly_cost_cents: int = Field(ge=0)
+    cpu_avg: float | None = None
+    cpu_peak: float | None = None
+    year: int | None = None
+    month: int | None = Field(default=None, ge=1, le=12)
+
+
+class ResourceList(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ResourceSummary]
+    total: int = Field(ge=0)
+
+
 class MetricRollup(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
