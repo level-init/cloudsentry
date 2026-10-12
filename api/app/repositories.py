@@ -1,6 +1,7 @@
 """Persistence for resources and optimization proposals."""
 
-from datetime import date
+from datetime import date, datetime, timezone
+from typing import TypeVar
 
 from sqlalchemy import func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
@@ -13,8 +14,15 @@ from app.proposals import (
     RiskAssessment,
     VerificationStatus,
 )
-from app.schemas import MetricRollup, Resource
-from app.tables import FindingRow, MetricRollupRow, ProposalRow, ResourceRow, RiskAssessmentRow
+from app.schemas import CostRecord, MetricRollup, Resource
+from app.tables import (
+    CostRecordRow,
+    FindingRow,
+    MetricRollupRow,
+    ProposalRow,
+    ResourceRow,
+    RiskAssessmentRow,
+)
 
 
 class ResourceRepository:
@@ -119,6 +127,52 @@ class MetricRollupRepository:
         )
 
 
+class CostRecordRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def upsert_many(self, records: list[CostRecord]) -> tuple[int, int]:
+        if not records:
+            return 0, 0
+        created = 0
+        for chunk in _chunks(records, 500):
+            created += len(chunk) - _existing_costs(self.session, chunk)
+            self.session.execute(_cost_insert(chunk))
+        self.session.flush()
+        return created, len(records) - created
+
+    def monthly_cents(
+        self,
+        year: int,
+        month: int,
+        *,
+        resource_id: str | None = None,
+        account_id: str | None = None,
+    ) -> int:
+        start, end = _month_bounds(year, month)
+        statement = (
+            select(CostRecordRow.amount)
+            .join(ResourceRow, ResourceRow.resource_id == CostRecordRow.resource_id)
+            .where(CostRecordRow.period_start >= start, CostRecordRow.period_start < end)
+        )
+        if resource_id is not None:
+            statement = statement.where(CostRecordRow.resource_id == resource_id)
+        if account_id is not None:
+            statement = statement.where(ResourceRow.account_id == account_id)
+        amounts = self.session.scalars(statement).all()
+        return sum(_cents(amount) for amount in amounts)
+
+    def count(self, resource_id: str) -> int:
+        return int(
+            self.session.scalar(
+                select(func.count())
+                .select_from(CostRecordRow)
+                .where(CostRecordRow.resource_id == resource_id)
+            )
+            or 0
+        )
+
+
 class ProposalRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -177,8 +231,59 @@ class ProposalRepository:
         return self.get(proposal_id)
 
 
-def _chunks(rollups: list[MetricRollup], size: int) -> list[list[MetricRollup]]:
-    return [rollups[index : index + size] for index in range(0, len(rollups), size)]
+_Item = TypeVar("_Item")
+
+
+def _chunks(items: list[_Item], size: int) -> list[list[_Item]]:
+    return [items[index : index + size] for index in range(0, len(items), size)]
+
+
+def _month_bounds(year: int, month: int) -> tuple[datetime, datetime]:
+    if not 1 <= month <= 12:
+        raise ValueError("month must be from 1 to 12")
+    start = datetime(year, month, 1, tzinfo=timezone.utc)
+    if month == 12:
+        end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+    return start, end
+
+
+def _cents(amount: float) -> int:
+    return int(round(amount * 100))
+
+
+def _existing_costs(session: Session, records: list[CostRecord]) -> int:
+    keys = [(record.resource_id, record.period_start) for record in records]
+    found = session.scalar(
+        select(func.count())
+        .select_from(CostRecordRow)
+        .where(tuple_(CostRecordRow.resource_id, CostRecordRow.period_start).in_(keys))
+    )
+    return int(found or 0)
+
+
+def _cost_insert(records: list[CostRecord]):
+    statement = insert(CostRecordRow).values(
+        [
+            {
+                "resource_id": record.resource_id,
+                "period_start": record.period_start,
+                "period_end": record.period_end,
+                "amount": record.amount,
+                "currency": record.currency,
+            }
+            for record in records
+        ]
+    )
+    return statement.on_conflict_do_update(
+        constraint="uq_cost_records_resource_period",
+        set_={
+            "period_end": statement.excluded.period_end,
+            "amount": statement.excluded.amount,
+            "currency": statement.excluded.currency,
+        },
+    )
 
 
 def _existing_rollups(session: Session, rollups: list[MetricRollup]) -> int:
