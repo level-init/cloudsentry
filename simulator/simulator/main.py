@@ -1,15 +1,19 @@
 import uvicorn
 from fastapi import FastAPI
 
+from simulator.mutate_api import mount_mutations
 from simulator.read_api import mount_read_api
+from simulator.world import World
 
 
 def create_app() -> FastAPI:
+    world = World()
     app = FastAPI(
         title="CloudSentry Simulator",
         version="0.1.0",
         description=(
-            "Read-only view of the seeded AWS-like company. This API does not mutate resources."
+            "Seeded AWS-like company. Reads return current state. "
+            "Actions can be rolled back. This API does not call AWS."
         ),
     )
 
@@ -17,7 +21,8 @@ def create_app() -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
-    mount_read_api(app)
+    mount_read_api(app, world)
+    mount_mutations(app, world)
     return app
 
 

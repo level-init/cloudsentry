@@ -73,6 +73,10 @@ class SimResource(BaseModel):
     environment: Environment
     name: str = Field(min_length=1)
     tags: dict[str, str] = Field(default_factory=dict)
+    sku: str | None = None
+    power_state: str | None = None
+    schedule: str | None = None
+    storage_class: str | None = None
 
 
 class Inventory(BaseModel):

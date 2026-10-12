@@ -56,9 +56,21 @@ class CostLine(BaseModel):
 
 
 def sku_for(resource: SimResource) -> tuple[str, int]:
+    if resource.sku is not None:
+        cents = _cents_for(resource.resource_type, resource.sku)
+        if cents is None:
+            raise ValueError(f"unknown sku {resource.sku} for {resource.resource_type}")
+        return resource.sku, cents
     options = _SKUS[resource.resource_type]
     digest = hashlib.sha256(resource.resource_id.encode()).digest()
     return options[digest[0] % len(options)]
+
+
+def _cents_for(resource_type: ResourceType, sku: str) -> int | None:
+    for name, cents in _SKUS[resource_type]:
+        if name == sku:
+            return cents
+    return None
 
 
 def monthly_cents(resource: SimResource) -> int:
