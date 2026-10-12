@@ -222,7 +222,7 @@ Architecture patterns, pricing strategy, agent negotiation/compromise plans, cou
 
 ### Phase 8 — Real AWS
 
-Read-only adapters first, then recommendation-only on sandbox, then Terraform PRs against real repos. Same proposal lifecycle; swap simulator for AWS adapters.
+Read-only adapters first, then recommendation-only on sandbox, then Terraform PRs against real repos. Same proposal lifecycle; swap simulator for AWS adapters. The swap boundary is [docs/simulator-adapter.md](simulator-adapter.md).
 
 ## 10. Evaluation
 

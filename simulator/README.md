@@ -1,6 +1,6 @@
 # CloudSentry Simulator
 
-AWS-like fake cloud. Accounts, environments, and resources live in an in-memory inventory (`simulator.model`). The HTTP service can read that world and apply a small set of actions that roll back. This package does not import the API or the worker, and it does not call AWS.
+AWS-like fake cloud. Accounts, environments, and resources live in an in-memory inventory (`simulator.model`). The HTTP service can read that world and apply a small set of actions that roll back. This package does not import the API or the worker, and it does not call AWS. The boundary a future AWS adapter must match is [docs/simulator-adapter.md](../docs/simulator-adapter.md).
 
 ## Inventory model
 
