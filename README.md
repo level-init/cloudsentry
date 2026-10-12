@@ -49,6 +49,7 @@ The API skeleton is documented in [api/README.md](api/README.md). The web shell 
 - [Web](web/README.md) — how to run the frontend locally
 - [Worker](worker/README.md) — how to run the worker locally
 - [Simulator](simulator/README.md) — how to run the simulator locally
+- [Simulator adapter](docs/simulator-adapter.md) — simulator endpoints versus the future AWS adapter
 
 ## Quickstart
 
