@@ -22,10 +22,11 @@ def main() -> None:
     if sys.argv[1:] == ["ingest-inventory"]:
         counts = ingest_inventory()
         logging.info(
-            "inventory ingest created=%s updated=%s total=%s",
+            "inventory ingest created=%s updated=%s total=%s absent=%s",
             counts.created,
             counts.updated,
             counts.total,
+            counts.absent,
         )
         return
     if sys.argv[1:] == ["ingest-metrics"]:
@@ -50,11 +51,12 @@ def main() -> None:
     if sys.argv[1:] == ["ingest-knowledge"]:
         counts = ingest_knowledge()
         logging.info(
-            "knowledge ingest resources_created=%s resources_updated=%s "
+            "knowledge ingest resources_created=%s resources_updated=%s resources_absent=%s "
             "dependencies_created=%s dependencies_updated=%s "
             "incidents_created=%s incidents_updated=%s",
             counts.resources_created,
             counts.resources_updated,
+            counts.resources_absent,
             counts.dependencies_created,
             counts.dependencies_updated,
             counts.incidents_created,

@@ -41,6 +41,7 @@ class Resource(BaseModel):
     team: str = Field(min_length=1)
     business_criticality: BusinessCriticality
     tags: dict[str, str] = Field(default_factory=dict)
+    present: bool = True
 
 
 class MetricRollup(BaseModel):

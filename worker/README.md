@@ -25,12 +25,12 @@ The simulator must be running. From the repository root, after `make migrate`:
 make ingest-inventory
 ```
 
-That runs `python -m worker.main ingest-inventory`. The log line is `inventory ingest created=N updated=M total=T`.
+That runs `python -m worker.main ingest-inventory`. The log line is `inventory ingest created=N updated=M total=T absent=A`.
 
 Rules:
 
 - `GET /resources` is followed with `limit` and `offset` until every resource in `total` is read.
-- Each simulator resource becomes one `resources` row. The row count matches that total.
+- Each simulator resource becomes one `resources` row. A later full sync that omits it sets `present` to false and leaves the row in place.
 - `owner`, `team`, and `business_criticality` are copied from the `owner`, `team`, and `criticality` tags. A resource missing one of those tags fails the job.
 - `name`, `sku`, `power_state`, `schedule`, and `storage_class` are not columns and are not stored.
 - Metrics and billing are not ingested.
@@ -72,4 +72,18 @@ The planted production edge is `i-prd-000` `uses_database` `db-prd-014`. `i-prd-
 make ingest-knowledge
 ```
 
-That runs `python -m worker.main ingest-knowledge`.
+That runs `python -m worker.main ingest-knowledge`. The log line includes `resources_absent`.
+
+## Re-ingestion
+
+A second full sync updates existing rows. It does not insert another copy.
+
+| Entity | Upsert key |
+| --- | --- |
+| resources | `resource_id` |
+| metric_rollups | `resource_id`, `name`, `day` |
+| cost_records | `resource_id`, `period_start` |
+| dependencies | `source_resource_id`, `target_resource_id`, `relationship` |
+| incidents | `incident_id` |
+
+Inventory and knowledge syncs compare the full simulator resource list with the table. A resource that is no longer in that list stays in the database with `present` set to false. Its rollups, cost records, dependency edges, and incidents stay too, so history is not deleted. A later sync that includes the resource sets `present` back to true. These jobs are full snapshots, not a change stream.

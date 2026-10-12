@@ -9,16 +9,17 @@ import logging
 from dataclasses import dataclass
 
 from app.db import create_session
-from app.repositories import DependencyRepository, IncidentRepository, ResourceRepository
+from app.repositories import DependencyRepository, IncidentRepository
 from app.schemas import Dependency, Incident
 from worker.config import get_settings
-from worker.inventory import fetch_resources, get_json, resource_from_simulator
+from worker.inventory import fetch_resources, get_json, ingest_resources, resource_from_simulator
 
 
 @dataclass(frozen=True)
 class KnowledgeIngestCounts:
     resources_created: int
     resources_updated: int
+    resources_absent: int
     dependencies_created: int
     dependencies_updated: int
     incidents_created: int
@@ -30,11 +31,10 @@ def ingest_knowledge(base_url: str | None = None) -> KnowledgeIngestCounts:
     payloads = fetch_resources(url)
     session = create_session()
     try:
-        resources = ResourceRepository(session)
-        resources_created = 0
-        for payload in payloads:
-            if resources.upsert(resource_from_simulator(payload)):
-                resources_created += 1
+        resource_counts = ingest_resources(
+            session,
+            [resource_from_simulator(payload) for payload in payloads],
+        )
         edges: list[Dependency] = []
         incidents: list[Incident] = []
         for payload in payloads:
@@ -60,8 +60,9 @@ def ingest_knowledge(base_url: str | None = None) -> KnowledgeIngestCounts:
     finally:
         session.close()
     return KnowledgeIngestCounts(
-        resources_created,
-        len(payloads) - resources_created,
+        resource_counts.created,
+        resource_counts.updated,
+        resource_counts.absent,
         dependencies_created,
         dependencies_updated,
         incidents_created,
