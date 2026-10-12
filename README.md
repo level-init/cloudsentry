@@ -49,6 +49,7 @@ The API skeleton is documented in [api/README.md](api/README.md). The web shell 
 - [Web](web/README.md) — how to run the frontend locally
 - [Worker](worker/README.md) — how to run the worker locally
 - [Simulator](simulator/README.md) — how to run the simulator locally
+- [Simulator adapter](docs/simulator-adapter.md) — simulator endpoints versus the future AWS adapter
 
 ## Quickstart
 
@@ -76,6 +77,8 @@ make run-worker
 | `make run-simulator` | http://127.0.0.1:8001/health |
 | `make run-web` | http://localhost:3000 |
 | `make run-worker` | logs `worker ok`, then exits |
+
+`make seed-simulator` rebuilds the in-memory company: 3 accounts and 180 resources.
 
 `make migrate` applies the Alembic migrations to the Compose database. `make migrate-down` removes those tables. Run both from the repository root after `make install` and `make compose-up`. Postgres listens on `localhost:5432`. The API and worker read `DATABASE_URL` from `.env`. The application does not query these tables yet.
 
