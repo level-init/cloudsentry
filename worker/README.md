@@ -35,3 +35,17 @@ Rules:
 - `name`, `sku`, `power_state`, `schedule`, and `storage_class` are not columns and are not stored.
 - Metrics and billing are not ingested.
 - Running the job again updates the existing `resource_id` rows. `created` is 0 and the table does not grow.
+
+## Metric rollups
+
+Hourly samples are not copied into Postgres. The job stores one daily rollup per resource and metric name: `avg_value` is that day's mean and `peak_value` is that day's maximum. The window starts at 2025-12-02 00:00 UTC and ends at the simulator clock. Disks and snapshots have no series, so they add no rows. Run inventory ingestion first so every simulator resource already has a row.
+
+A detector query uses calendar days, start inclusive and end exclusive. Because each stored day is a full simulator day, the 30-day average is the mean of the daily averages and the 30-day peak is the max of the daily peaks. For the planted idle VM `i-dev-062`, the 30 days ending 2026-04-01 are `2026-03-02` through `2026-03-31`.
+
+Running the job again updates the same resource, name, and day. The rollup count does not grow.
+
+```bash
+make ingest-metrics
+```
+
+That runs `python -m worker.main ingest-metrics`. The log line is `metrics ingest created=N updated=M rollups=R resources=S`.
