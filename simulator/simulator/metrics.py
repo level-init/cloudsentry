@@ -1,7 +1,10 @@
 """Deterministic hourly utilization for the seeded company.
 
-Samples are generated from the resource id and timestamp, so the same query
-always returns the same series. This is not CloudWatch.
+Samples are generated from the resource id, its current power state and
+schedule, and the timestamp. The same state and window always return the same
+series. Stopped compute is flat at zero. A weekday schedule is zero outside
+09:00-17:00 UTC on weekdays. Changing the SKU does not rewrite utilization.
+This is not CloudWatch.
 """
 
 import hashlib
@@ -11,7 +14,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from simulator.model import Inventory, ResourceType
+from simulator.model import Inventory, ResourceType, SimResource
 from simulator.seed import seed_company
 
 HISTORY_DAYS = 120
@@ -96,7 +99,7 @@ def query_metrics(
                     resource_id=resource_id,
                     name=metric_name,
                     timestamp=hour,
-                    value=_value(resource_id, metric_name, hour),
+                    value=_value(resource, metric_name, hour),
                     unit=unit,
                 )
             )
@@ -132,8 +135,8 @@ def main() -> None:
         print(f"{resource_id} {profile}: avg {average:.1f}% peak {peak:.1f}%")
 
 
-def _value(resource_id: str, name: str, hour: datetime) -> float:
-    level = _activity(resource_id, hour)
+def _value(resource: SimResource, name: str, hour: datetime) -> float:
+    level = _activity(resource, hour)
     if name == "cpu_percent":
         return round(level, 2)
     if name == "memory_percent":
@@ -147,7 +150,12 @@ def _value(resource_id: str, name: str, hour: datetime) -> float:
     raise ValueError(f"unknown metric {name}")
 
 
-def _activity(resource_id: str, hour: datetime) -> float:
+def _activity(resource: SimResource, hour: datetime) -> float:
+    if resource.power_state == "stopped":
+        return 0.0
+    resource_id = resource.resource_id
+    if resource.schedule == "weekdays-09-17" and not _on_schedule(hour):
+        return 0.0
     profile = usage_profile(resource_id)
     weekday = hour.weekday() < 5
     business = weekday and 9 <= hour.hour < 17
@@ -163,6 +171,10 @@ def _activity(resource_id: str, hour: datetime) -> float:
     season = 1 + 0.12 * math.sin(2 * math.pi * day_index / 30)
     noise = (_unit_noise(resource_id, hour) - 0.5) * 6
     return min(100.0, max(0.0, level * season + noise))
+
+
+def _on_schedule(hour: datetime) -> bool:
+    return hour.weekday() < 5 and 9 <= hour.hour < 17
 
 
 def _unit_noise(resource_id: str, hour: datetime) -> float:

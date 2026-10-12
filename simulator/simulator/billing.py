@@ -2,6 +2,11 @@
 
 Prices are stable per resource and follow rough us-east-1 on-demand rates for
 730 hours, or published GB-month storage rates. This is not a real CUR.
+
+Projections are regenerated from the resource's current fields on every query.
+A stopped compute bills nothing. A weekday schedule bills 40 of 168 hours.
+Infrequent-access storage bills half of its standard rate. The same resource
+state always produces the same lines.
 """
 
 import calendar
@@ -12,6 +17,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from simulator.model import Inventory, ResourceType, SimResource
 from simulator.seed import seed_company
+
+# weekdays 09:00-17:00 UTC is 8 hours * 5 days of a 168-hour week.
+SCHEDULED_WEEK_HOURS = 40
+WEEK_HOURS = 168
 
 # (sku, monthly cents). Compute and database assume 730 hours.
 _SKUS: dict[ResourceType, tuple[tuple[str, int], ...]] = {
@@ -77,12 +86,28 @@ def monthly_cents(resource: SimResource) -> int:
     return sku_for(resource)[1]
 
 
+def projected_monthly_cents(resource: SimResource) -> int:
+    cents = monthly_cents(resource)
+    if resource.resource_type == ResourceType.compute:
+        if resource.power_state == "stopped":
+            return 0
+        if resource.schedule == "weekdays-09-17":
+            return cents * SCHEDULED_WEEK_HOURS // WEEK_HOURS
+    if (
+        resource.resource_type == ResourceType.object_storage
+        and resource.storage_class == "infrequent_access"
+    ):
+        return cents // 2
+    return cents
+
+
 def daily_costs(inventory: Inventory, account_id: str, year: int, month: int) -> list[CostLine]:
     _require_account(inventory, account_id)
     days = calendar.monthrange(year, month)[1]
     lines: list[CostLine] = []
     for resource in inventory.resources_for(account_id):
-        sku, cents = sku_for(resource)
+        sku = sku_for(resource)[0]
+        cents = projected_monthly_cents(resource)
         for day_index, day_cents in enumerate(_split_cents(cents, days), start=1):
             lines.append(
                 CostLine(
