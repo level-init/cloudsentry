@@ -61,3 +61,15 @@ make ingest-billing
 ```
 
 That runs `python -m worker.main ingest-billing`. The log line is `billing ingest created=N updated=M records=R`.
+
+## Dependencies, incidents, and tags
+
+`make ingest-knowledge` refreshes every simulator resource, including `owner`, `team`, `business_criticality`, and the tag map. It then stores dependency edges and incidents. An edge is unique for its source, target, and relationship. An incident is unique for its id. Lookup is `dependencies_of(resource_id)` and `IncidentRepository.for_resource(resource_id)`.
+
+The planted production edge is `i-prd-000` `uses_database` `db-prd-014`. `i-prd-005` has incident `inc-prd-idle`. A second run updates those same rows.
+
+```bash
+make ingest-knowledge
+```
+
+That runs `python -m worker.main ingest-knowledge`.

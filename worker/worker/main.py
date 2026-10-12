@@ -4,6 +4,7 @@ import sys
 from worker.billing_ingest import ingest_billing
 from worker.config import get_settings
 from worker.inventory import ingest_inventory
+from worker.knowledge_ingest import ingest_knowledge
 from worker.metric_ingest import ingest_metrics
 
 
@@ -44,6 +45,20 @@ def main() -> None:
             counts.created,
             counts.updated,
             counts.records,
+        )
+        return
+    if sys.argv[1:] == ["ingest-knowledge"]:
+        counts = ingest_knowledge()
+        logging.info(
+            "knowledge ingest resources_created=%s resources_updated=%s "
+            "dependencies_created=%s dependencies_updated=%s "
+            "incidents_created=%s incidents_updated=%s",
+            counts.resources_created,
+            counts.resources_updated,
+            counts.dependencies_created,
+            counts.dependencies_updated,
+            counts.incidents_created,
+            counts.incidents_updated,
         )
         return
     raise SystemExit(f"unknown command {sys.argv[1]}")

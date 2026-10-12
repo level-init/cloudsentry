@@ -80,6 +80,7 @@ make run-worker
 | `make ingest-inventory` | copies simulator resources into Postgres |
 | `make ingest-metrics` | copies simulator metrics into daily rollups |
 | `make ingest-billing` | copies simulator daily costs into Postgres |
+| `make ingest-knowledge` | copies dependencies, incidents, and resource tags |
 
 `make seed-simulator` rebuilds the in-memory company: 3 accounts and 180 resources.
 

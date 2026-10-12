@@ -14,10 +14,12 @@ from app.proposals import (
     RiskAssessment,
     VerificationStatus,
 )
-from app.schemas import CostRecord, MetricRollup, Resource
+from app.schemas import CostRecord, Dependency, Incident, MetricRollup, Resource
 from app.tables import (
     CostRecordRow,
+    DependencyRow,
     FindingRow,
+    IncidentRow,
     MetricRollupRow,
     ProposalRow,
     ResourceRow,
@@ -173,6 +175,60 @@ class CostRecordRepository:
         )
 
 
+class DependencyRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def upsert_many(self, edges: list[Dependency]) -> tuple[int, int]:
+        if not edges:
+            return 0, 0
+        created = 0
+        for chunk in _chunks(edges, 500):
+            created += len(chunk) - _existing_edges(self.session, chunk)
+            self.session.execute(_edge_insert(chunk))
+        self.session.flush()
+        return created, len(edges) - created
+
+    def dependencies_of(self, resource_id: str) -> list[Dependency]:
+        rows = self.session.scalars(
+            select(DependencyRow)
+            .where(DependencyRow.source_resource_id == resource_id)
+            .order_by(DependencyRow.relationship, DependencyRow.target_resource_id)
+        ).all()
+        return [_dependency_from_row(row) for row in rows]
+
+    def dependents_of(self, resource_id: str) -> list[Dependency]:
+        rows = self.session.scalars(
+            select(DependencyRow)
+            .where(DependencyRow.target_resource_id == resource_id)
+            .order_by(DependencyRow.relationship, DependencyRow.source_resource_id)
+        ).all()
+        return [_dependency_from_row(row) for row in rows]
+
+
+class IncidentRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def upsert_many(self, incidents: list[Incident]) -> tuple[int, int]:
+        if not incidents:
+            return 0, 0
+        created = 0
+        for chunk in _chunks(incidents, 500):
+            created += len(chunk) - _existing_incidents(self.session, chunk)
+            self.session.execute(_incident_insert(chunk))
+        self.session.flush()
+        return created, len(incidents) - created
+
+    def for_resource(self, resource_id: str) -> list[Incident]:
+        rows = self.session.scalars(
+            select(IncidentRow)
+            .where(IncidentRow.resource_id == resource_id)
+            .order_by(IncidentRow.started_at, IncidentRow.incident_id)
+        ).all()
+        return [_incident_from_row(row) for row in rows]
+
+
 class ProposalRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -319,6 +375,86 @@ def _rollup_insert(rollups: list[MetricRollup]):
             "peak_value": statement.excluded.peak_value,
             "unit": statement.excluded.unit,
         },
+    )
+
+
+def _existing_edges(session: Session, edges: list[Dependency]) -> int:
+    keys = [(edge.source_resource_id, edge.target_resource_id, edge.relationship) for edge in edges]
+    found = session.scalar(
+        select(func.count())
+        .select_from(DependencyRow)
+        .where(
+            tuple_(
+                DependencyRow.source_resource_id,
+                DependencyRow.target_resource_id,
+                DependencyRow.relationship,
+            ).in_(keys)
+        )
+    )
+    return int(found or 0)
+
+
+def _edge_insert(edges: list[Dependency]):
+    statement = insert(DependencyRow).values(
+        [
+            {
+                "source_resource_id": edge.source_resource_id,
+                "target_resource_id": edge.target_resource_id,
+                "relationship": edge.relationship,
+            }
+            for edge in edges
+        ]
+    )
+    return statement.on_conflict_do_nothing(constraint="uq_dependencies_edge")
+
+
+def _existing_incidents(session: Session, incidents: list[Incident]) -> int:
+    keys = [incident.incident_id for incident in incidents]
+    found = session.scalar(
+        select(func.count()).select_from(IncidentRow).where(IncidentRow.incident_id.in_(keys))
+    )
+    return int(found or 0)
+
+
+def _incident_insert(incidents: list[Incident]):
+    statement = insert(IncidentRow).values(
+        [
+            {
+                "incident_id": incident.incident_id,
+                "resource_id": incident.resource_id,
+                "severity": incident.severity.value,
+                "started_at": incident.started_at,
+                "summary": incident.summary,
+            }
+            for incident in incidents
+        ]
+    )
+    return statement.on_conflict_do_update(
+        index_elements=["incident_id"],
+        set_={
+            "resource_id": statement.excluded.resource_id,
+            "severity": statement.excluded.severity,
+            "started_at": statement.excluded.started_at,
+            "summary": statement.excluded.summary,
+        },
+    )
+
+
+def _dependency_from_row(row: DependencyRow) -> Dependency:
+    return Dependency(
+        source_resource_id=row.source_resource_id,
+        target_resource_id=row.target_resource_id,
+        relationship=row.relationship,
+    )
+
+
+def _incident_from_row(row: IncidentRow) -> Incident:
+    return Incident(
+        incident_id=row.incident_id,
+        resource_id=row.resource_id,
+        severity=row.severity,
+        started_at=row.started_at,
+        summary=row.summary,
     )
 
 
