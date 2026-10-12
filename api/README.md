@@ -25,7 +25,7 @@ Stop the server with Ctrl+C. `DATABASE_URL` is optional for this skeleton. The d
 
 With the API running, open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs). The schema is at [http://127.0.0.1:8000/openapi.json](http://127.0.0.1:8000/openapi.json).
 
-`/docs` lists `GET /health` under **system**. **Inventory** includes `GET /resources`, `GET /resources/{resource_id}`, `GET /resources/{resource_id}/dependencies`, and `GET /resources/{resource_id}/dependents`. The **proposals** group is tagged so those routes show up on the same page as they land.
+`/docs` lists `GET /health` under **system**. **Inventory** includes resource list and get, dependency lookup, and `GET /spend/accounts` plus `GET /spend/environments`. The **proposals** group is tagged so those routes show up on the same page as they land.
 
 ```bash
 curl -s 'localhost:8000/resources?account_id=111111111111&environment=development&resource_type=compute'
@@ -42,6 +42,15 @@ curl -s localhost:8000/resources/db-prd-014/dependents
 ```
 
 `i-prd-000` depends on `bucket-prd-021` (`reads_bucket`) and `db-prd-014` (`uses_database`). `db-prd-014` depends on `vol-prd-003` (`stores_on`).
+
+Spend aggregates sum daily cost rows for one calendar month. Each line is converted to cents, then summed. `total_cents` is the sum of the slices. An account or environment with no cost rows in that month is omitted. Leave `year` and `month` off to use the latest month that has cost records.
+
+```bash
+curl -s 'localhost:8000/spend/accounts?year=2026&month=3'
+curl -s 'localhost:8000/spend/environments?year=2026&month=3'
+```
+
+On a fresh March 2026 ingest those totals are development `111111111111` 428264 cents, staging `222222222222` 338760 cents, and production `333333333333` 411369 cents. Each account is one environment, so the environment totals match.
 
 ## Core schemas
 

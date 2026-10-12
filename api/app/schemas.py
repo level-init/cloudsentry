@@ -59,6 +59,38 @@ class ResourceList(BaseModel):
     total: int = Field(ge=0)
 
 
+class AccountSpend(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: str = Field(min_length=1)
+    monthly_cost_cents: int = Field(ge=0)
+
+
+class EnvironmentSpend(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    environment: Environment
+    monthly_cost_cents: int = Field(ge=0)
+
+
+class AccountSpendReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    year: int | None = None
+    month: int | None = Field(default=None, ge=1, le=12)
+    items: list[AccountSpend]
+    total_cents: int = Field(ge=0)
+
+
+class EnvironmentSpendReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    year: int | None = None
+    month: int | None = Field(default=None, ge=1, le=12)
+    items: list[EnvironmentSpend]
+    total_cents: int = Field(ge=0)
+
+
 class MetricRollup(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
