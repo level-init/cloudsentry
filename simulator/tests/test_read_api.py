@@ -9,6 +9,8 @@ def test_openapi_lists_read_paths() -> None:
 
     assert {
         "/health",
+        "/clock",
+        "/clock/advance",
         "/resources",
         "/resources/{resource_id}",
         "/resources/{resource_id}/tags",

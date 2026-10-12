@@ -6,7 +6,8 @@ Prices are stable per resource and follow rough us-east-1 on-demand rates for
 Projections are regenerated from the resource's current fields on every query.
 A stopped compute bills nothing. A weekday schedule bills 40 of 168 hours.
 Infrequent-access storage bills half of its standard rate. The same resource
-state always produces the same lines.
+state always produces the same lines. Pass `through` to omit days after the
+simulator clock. Omit it to rate the whole month.
 """
 
 import calendar
@@ -101,7 +102,14 @@ def projected_monthly_cents(resource: SimResource) -> int:
     return cents
 
 
-def daily_costs(inventory: Inventory, account_id: str, year: int, month: int) -> list[CostLine]:
+def daily_costs(
+    inventory: Inventory,
+    account_id: str,
+    year: int,
+    month: int,
+    *,
+    through: date | None = None,
+) -> list[CostLine]:
     _require_account(inventory, account_id)
     days = calendar.monthrange(year, month)[1]
     lines: list[CostLine] = []
@@ -109,12 +117,15 @@ def daily_costs(inventory: Inventory, account_id: str, year: int, month: int) ->
         sku = sku_for(resource)[0]
         cents = projected_monthly_cents(resource)
         for day_index, day_cents in enumerate(_split_cents(cents, days), start=1):
+            day = date(year, month, day_index)
+            if through is not None and day > through:
+                continue
             lines.append(
                 CostLine(
                     resource_id=resource.resource_id,
                     account_id=account_id,
                     sku=sku,
-                    day=date(year, month, day_index),
+                    day=day,
                     amount_cents=day_cents,
                 )
             )
