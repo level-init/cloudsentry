@@ -231,6 +231,12 @@ class CostRecordRepository:
             totals[resource_id] = totals.get(resource_id, 0) + _cents(amount)
         return totals
 
+    def monthly_cents_by_account(self, year: int, month: int) -> dict[str, int]:
+        return _monthly_cents_grouped(self.session, year, month, ResourceRow.account_id)
+
+    def monthly_cents_by_environment(self, year: int, month: int) -> dict[str, int]:
+        return _monthly_cents_grouped(self.session, year, month, ResourceRow.environment)
+
     def latest_month(self) -> tuple[int, int] | None:
         latest = self.session.scalar(select(func.max(CostRecordRow.period_start)))
         if latest is None:
@@ -365,6 +371,19 @@ _Item = TypeVar("_Item")
 
 def _chunks(items: list[_Item], size: int) -> list[list[_Item]]:
     return [items[index : index + size] for index in range(0, len(items), size)]
+
+
+def _monthly_cents_grouped(session: Session, year: int, month: int, column) -> dict[str, int]:
+    start, end = _month_bounds(year, month)
+    rows = session.execute(
+        select(column, CostRecordRow.amount)
+        .join(ResourceRow, ResourceRow.resource_id == CostRecordRow.resource_id)
+        .where(CostRecordRow.period_start >= start, CostRecordRow.period_start < end)
+    ).all()
+    totals: dict[str, int] = {}
+    for key, amount in rows:
+        totals[key] = totals.get(key, 0) + _cents(amount)
+    return totals
 
 
 def _month_bounds(year: int, month: int) -> tuple[datetime, datetime]:
