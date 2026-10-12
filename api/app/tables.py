@@ -75,6 +75,14 @@ class CostRecordRow(Base):
 
 class DependencyRow(Base):
     __tablename__ = "dependencies"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_resource_id",
+            "target_resource_id",
+            "relationship",
+            name="uq_dependencies_edge",
+        ),
+    )
 
     dependency_id: Mapped[int] = mapped_column(primary_key=True)
     source_resource_id: Mapped[str] = mapped_column(
