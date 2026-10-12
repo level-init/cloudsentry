@@ -77,10 +77,11 @@ make run-worker
 | `make run-simulator` | http://127.0.0.1:8001/health |
 | `make run-web` | http://localhost:3000 |
 | `make run-worker` | logs `worker ok`, then exits |
+| `make ingest-inventory` | copies simulator resources into Postgres |
 
 `make seed-simulator` rebuilds the in-memory company: 3 accounts and 180 resources.
 
-`make migrate` applies the Alembic migrations to the Compose database. `make migrate-down` removes those tables. Run both from the repository root after `make install` and `make compose-up`. Postgres listens on `localhost:5432`. The API and worker read `DATABASE_URL` from `.env`. The application does not query these tables yet.
+`make migrate` applies the Alembic migrations to the Compose database. `make migrate-down` removes those tables. Run both from the repository root after `make install` and `make compose-up`. Postgres listens on `localhost:5432`. The API and worker read `DATABASE_URL` from `.env`. `make ingest-inventory` writes simulator resources into the `resources` table. The simulator must already be running. Rules for that copy are in [worker/README.md](worker/README.md).
 
 ## Python checks
 

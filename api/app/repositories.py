@@ -34,6 +34,21 @@ class ResourceRepository:
         self.session.flush()
         return resource
 
+    def upsert(self, resource: Resource) -> bool:
+        row = self.session.get(ResourceRow, resource.resource_id)
+        if row is None:
+            self.create(resource)
+            return True
+        row.resource_type = resource.resource_type
+        row.account_id = resource.account_id
+        row.environment = resource.environment.value
+        row.owner = resource.owner
+        row.team = resource.team
+        row.business_criticality = resource.business_criticality.value
+        row.tags = dict(resource.tags)
+        self.session.flush()
+        return False
+
     def get(self, resource_id: str) -> Resource | None:
         row = self.session.get(ResourceRow, resource_id)
         if row is None:
