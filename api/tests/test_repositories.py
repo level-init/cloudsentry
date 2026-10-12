@@ -87,8 +87,31 @@ def test_list_resources_filters_by_environment(session: Session) -> None:
     repository.create(_resource("i-prod-1", "production"))
 
     development = repository.list(environment="development")
+    ids = [resource.resource_id for resource in development]
 
-    assert [resource.resource_id for resource in development] == ["i-dev-1"]
+    assert "i-dev-1" in ids
+    assert "i-prod-1" not in ids
+    assert all(resource.environment == "development" for resource in development)
+
+
+def test_upsert_updates_the_same_resource_id(session: Session) -> None:
+    repository = ResourceRepository(session)
+    created = repository.upsert(_resource("i-dev-1"))
+    changed = _resource("i-dev-1").model_copy(
+        update={"owner": "platform", "tags": {"environment": "development"}}
+    )
+    updated = repository.upsert(changed)
+
+    fetched = repository.get("i-dev-1")
+    matches = [
+        resource.resource_id for resource in repository.list() if resource.resource_id == "i-dev-1"
+    ]
+
+    assert created is True
+    assert updated is False
+    assert fetched is not None
+    assert fetched.owner == "platform"
+    assert matches == ["i-dev-1"]
 
 
 def test_create_get_and_filter_proposals(session: Session) -> None:
