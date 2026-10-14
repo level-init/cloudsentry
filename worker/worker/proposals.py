@@ -30,11 +30,15 @@ from app.repositories import (
     ResourceRepository,
 )
 from app.schemas import Resource
+from worker.savings import (
+    Savings,
+    delete_savings,
+    lifecycle_savings,
+    resize_savings,
+    schedule_savings,
+    stop_savings,
+)
 
-# Monthly cents for the compute ladder. Matches simulator/simulator/billing.py.
-_COMPUTE_CENTS = {"t3.medium": 3037, "m5.large": 7008, "m5.xlarge": 14016}
-_SCHEDULED_WEEK_HOURS = 40
-_WEEK_HOURS = 168
 _CONFIDENCE = 0.8
 
 
@@ -42,8 +46,7 @@ _CONFIDENCE = 0.8
 class _Plan:
     action: str
     rollback: str
-    current_cents: int
-    predicted_cents: int
+    savings: Savings
     preconditions: list[str]
     success_metric: str
 
@@ -106,9 +109,9 @@ def _proposal(session: Session, finding, resource: Resource, plan: _Plan) -> Opt
         finding_id=finding.finding_id,
         resource_ids=list(finding.resource_ids),
         category=finding.category,
-        current_monthly_cost=_dollars(plan.current_cents),
-        predicted_monthly_cost=_dollars(plan.predicted_cents),
-        predicted_monthly_savings=_dollars(plan.current_cents - plan.predicted_cents),
+        current_monthly_cost=_dollars(plan.savings.current_cents),
+        predicted_monthly_cost=_dollars(plan.savings.predicted_cents),
+        predicted_monthly_savings=_dollars(plan.savings.savings_cents),
         confidence=_CONFIDENCE,
         business_criticality=resource.business_criticality,
         evidence=evidence,
@@ -146,8 +149,7 @@ def _idle(resource: Resource, evidence: list[str], current: int | None) -> _Plan
     return _Plan(
         action=f"stop {resource.resource_id}",
         rollback=f"start {resource.resource_id}",
-        current_cents=current,
-        predicted_cents=0,
+        savings=stop_savings(current),
         preconditions=[
             "compute is present",
             "cpu and request averages and peaks stay under the idle caps",
@@ -159,36 +161,36 @@ def _idle(resource: Resource, evidence: list[str], current: int | None) -> _Plan
 def _rightsizing(resource: Resource, evidence: list[str], current: int | None) -> _Plan | None:
     recommended = _value(evidence, "recommended_sku")
     current_sku = _value(evidence, "current_sku")
-    if current is None or recommended not in _COMPUTE_CENTS or not current_sku:
+    priced = None
+    if current is not None and recommended is not None:
+        priced = resize_savings(current, recommended)
+    if priced is None or not current_sku:
         return None
-    predicted = _COMPUTE_CENTS[recommended]
     return _Plan(
         action=f"resize {resource.resource_id} to {recommended}",
         rollback=f"resize {resource.resource_id} to {current_sku}",
-        current_cents=current,
-        predicted_cents=predicted,
+        savings=priced,
         preconditions=[
             f"recommended sku is {recommended}",
             "projected peak stays inside the rightsizing headroom",
         ],
-        success_metric=f"monthly cost at or below {_dollars(predicted):.2f}",
+        success_metric=f"monthly cost at or below {_dollars(priced.predicted_cents):.2f}",
     )
 
 
 def _scheduling(resource: Resource, evidence: list[str], current: int | None) -> _Plan | None:
     if current is None:
         return None
-    predicted = current * _SCHEDULED_WEEK_HOURS // _WEEK_HOURS
+    priced = schedule_savings(current)
     return _Plan(
         action=f"schedule {resource.resource_id} weekdays-09-17",
         rollback=f"schedule {resource.resource_id} always_on",
-        current_cents=current,
-        predicted_cents=predicted,
+        savings=priced,
         preconditions=[
             "environment is development or staging",
             "weekend and weekday cpu averages stay at or above 20",
         ],
-        success_metric=f"monthly cost at or below {_dollars(predicted):.2f}",
+        success_metric=f"monthly cost at or below {_dollars(priced.predicted_cents):.2f}",
     )
 
 
@@ -204,8 +206,7 @@ def _unattached(resource: Resource, evidence: list[str], current: int | None) ->
     return _Plan(
         action=f"delete {resource.resource_id}",
         rollback=rollback,
-        current_cents=current,
-        predicted_cents=0,
+        savings=delete_savings(current),
         preconditions=[
             "nothing depends on the resource",
             "cost history meets the storage age gate",
@@ -218,35 +219,33 @@ def _lifecycle(resource: Resource, evidence: list[str], current: int | None) -> 
     action = _value(evidence, "action")
     if current is None or action is None:
         return None
+    priced = lifecycle_savings(current, action)
+    if priced is None:
+        return None
     if action == "transition-to-infrequent-access":
-        predicted = current // 2
         return _Plan(
             action=f"transition {resource.resource_id} to infrequent_access",
             rollback=f"transition {resource.resource_id} to standard",
-            current_cents=current,
-            predicted_cents=predicted,
+            savings=priced,
             preconditions=[
                 "storage class is standard",
                 "monthly cost meets the lifecycle floor",
             ],
-            success_metric=f"monthly cost at or below {_dollars(predicted):.2f}",
+            success_metric=f"monthly cost at or below {_dollars(priced.predicted_cents):.2f}",
         )
-    if action.startswith("expire-after-"):
-        return _Plan(
-            action=f"expire {resource.resource_id}",
-            rollback=(
-                f"recreate {resource.resource_id} from its source disk while that disk still exists"
-            ),
-            current_cents=current,
-            predicted_cents=0,
-            preconditions=[
-                "snapshot is outside production",
-                "nothing depends on the snapshot",
-                "cost history meets the retention age",
-            ],
-            success_metric="monthly cost at or below 0.00",
-        )
-    return None
+    return _Plan(
+        action=f"expire {resource.resource_id}",
+        rollback=(
+            f"recreate {resource.resource_id} from its source disk while that disk still exists"
+        ),
+        savings=priced,
+        preconditions=[
+            "snapshot is outside production",
+            "nothing depends on the snapshot",
+            "cost history meets the retention age",
+        ],
+        success_metric="monthly cost at or below 0.00",
+    )
 
 
 _BUILDERS = {

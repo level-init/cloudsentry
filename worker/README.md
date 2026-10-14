@@ -116,7 +116,7 @@ The built-in `noop` detector returns no findings. The built-in `sample` detector
 | `unattached_storage` | `delete {id}` | recreate the disk or snapshot |
 | `storage_lifecycle` | transition to `infrequent_access`, or `expire {id}` | transition back to `standard`, or recreate the snapshot from its source disk |
 
-Current cost is the latest month. A stopped resource or a deleted disk or snapshot predicts 0. A weekday schedule predicts `cents * 40 // 168`. Infrequent access predicts half. The next compute sku uses the simulator monthly rate. Evidence from the finding is copied, and a `success_metric` line is added. Dependencies are `relationship target` strings. Preconditions restate the detector gate. Confidence is 0.8. Risk stays `APPROVAL_REQUIRED` with score 0.5 until risk classification exists. The JSON fields are the ones in the product overview.
+Current cost is the latest month. `worker/worker/savings.py` is the only savings math. Stop and delete predict 0. A weekday schedule predicts `cents * 40 // 168`. Infrequent access predicts half. Resize uses the simulator monthly rate for the target sku. `predicted_monthly_savings` is current minus that prediction. The same cents always produce the same savings. Evidence from the finding is copied, and a `success_metric` line is added. Dependencies are `relationship target` strings. Preconditions restate the detector gate. Confidence is 0.8. Risk stays `APPROVAL_REQUIRED` with score 0.5 until risk classification exists. The JSON fields are the ones in the product overview.
 
 A later run skips a pending proposal with the same resource ids and the same action. Rejecting that proposal lets a new id be created. The log line is `propose created=N skipped=S`.
 
