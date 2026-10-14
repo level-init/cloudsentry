@@ -12,6 +12,7 @@ class Settings(BaseSettings):
     storage_age_days: int = Field(default=30, ge=0)
     lifecycle_cost_cents: int = Field(default=5000, ge=0)
     lifecycle_retention_days: int = Field(default=90, ge=0)
+    detection_interval_seconds: int = Field(default=3600, gt=0)
 
 
 def get_settings() -> Settings:

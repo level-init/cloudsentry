@@ -15,10 +15,11 @@ from app.proposals import (
     RiskAssessment,
     VerificationStatus,
 )
-from app.schemas import CostRecord, Dependency, Incident, MetricRollup, Resource
+from app.schemas import CostRecord, Dependency, DetectionRun, Incident, MetricRollup, Resource
 from app.tables import (
     CostRecordRow,
     DependencyRow,
+    DetectionRunRow,
     FindingRow,
     IncidentRow,
     MetricRollupRow,
@@ -407,6 +408,43 @@ class IncidentRepository:
         return [_incident_from_row(row) for row in rows]
 
 
+class DetectionRunRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def create(
+        self,
+        *,
+        trigger: str,
+        interval_seconds: int,
+        started_at: datetime,
+        finished_at: datetime,
+        detectors: int,
+        created: int,
+        updated: int,
+        findings: int,
+    ) -> DetectionRun:
+        row = DetectionRunRow(
+            trigger=trigger,
+            interval_seconds=interval_seconds,
+            started_at=started_at,
+            finished_at=finished_at,
+            detectors=detectors,
+            created=created,
+            updated=updated,
+            findings=findings,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return _detection_run_from_row(row)
+
+    def get(self, run_id: int) -> DetectionRun | None:
+        row = self.session.get(DetectionRunRow, run_id)
+        if row is None:
+            return None
+        return _detection_run_from_row(row)
+
+
 class FindingRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -660,6 +698,20 @@ def _incident_insert(incidents: list[Incident]):
             "started_at": statement.excluded.started_at,
             "summary": statement.excluded.summary,
         },
+    )
+
+
+def _detection_run_from_row(row: DetectionRunRow) -> DetectionRun:
+    return DetectionRun(
+        run_id=row.run_id,
+        trigger=row.trigger,
+        interval_seconds=row.interval_seconds,
+        started_at=row.started_at,
+        finished_at=row.finished_at,
+        detectors=row.detectors,
+        created=row.created,
+        updated=row.updated,
+        findings=row.findings,
     )
 
 

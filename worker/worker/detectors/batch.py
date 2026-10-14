@@ -4,7 +4,6 @@ from dataclasses import dataclass
 
 from sqlalchemy.orm import Session
 
-from app.db import create_session
 from app.proposals import Finding
 from app.repositories import FindingRepository, ResourceRepository
 from worker.detectors.registry import DetectorRegistry, default_registry
@@ -19,16 +18,9 @@ class DetectResult:
 
 
 def detect(registry: DetectorRegistry | None = None) -> DetectResult:
-    session = create_session()
-    try:
-        result = run_batch(session, registry)
-        session.commit()
-    except Exception:
-        session.rollback()
-        raise
-    finally:
-        session.close()
-    return result
+    from worker.schedule import run_recorded
+
+    return run_recorded("manual", registry)
 
 
 def run_batch(session: Session, registry: DetectorRegistry | None = None) -> DetectResult:

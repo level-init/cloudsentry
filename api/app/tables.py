@@ -117,6 +117,20 @@ class PolicyRow(Base):
     actions: Mapped[list] = mapped_column(JSONB, nullable=False)
 
 
+class DetectionRunRow(Base):
+    __tablename__ = "detection_runs"
+
+    run_id: Mapped[int] = mapped_column(primary_key=True)
+    trigger: Mapped[str] = mapped_column(String, nullable=False)
+    interval_seconds: Mapped[int] = mapped_column(nullable=False)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    detectors: Mapped[int] = mapped_column(nullable=False)
+    created: Mapped[int] = mapped_column(nullable=False)
+    updated: Mapped[int] = mapped_column(nullable=False)
+    findings: Mapped[int] = mapped_column(nullable=False)
+
+
 class FindingRow(Base):
     __tablename__ = "findings"
 

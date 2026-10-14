@@ -152,6 +152,20 @@ class DependencyList(BaseModel):
     total: int = Field(ge=0)
 
 
+class DetectionRun(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: int
+    trigger: str = Field(pattern=r"^(manual|schedule)$")
+    interval_seconds: int = Field(gt=0)
+    started_at: datetime
+    finished_at: datetime
+    detectors: int = Field(ge=0)
+    created: int = Field(ge=0)
+    updated: int = Field(ge=0)
+    findings: int = Field(ge=0)
+
+
 class Incident(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
