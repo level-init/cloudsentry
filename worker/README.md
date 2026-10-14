@@ -87,3 +87,17 @@ A second full sync updates existing rows. It does not insert another copy.
 | incidents | `incident_id` |
 
 Inventory and knowledge syncs compare the full simulator resource list with the table. A resource that is no longer in that list stays in the database with `present` set to false. Its rollups, cost records, dependency edges, and incidents stay too, so history is not deleted. A later sync that includes the resource sets `present` back to true. These jobs are full snapshots, not a change stream.
+
+## Detectors
+
+`make detect` runs every registered detector over present resources and upserts the findings. The log line is `detect detectors=N created=C updated=U findings=F`. A finding is stored by `finding_id`. A second run updates that id.
+
+The built-in `noop` detector returns no findings. The built-in `sample` detector returns one finding for each present resource tagged `scenario=sample`. The finding includes that resource id and an evidence list.
+
+Add a detector by creating a class with `name` and `detect(self, resources) -> list[Finding]`, then register an instance in `worker/worker/detectors/__init__.py`:
+
+```python
+default_registry().register(IdleComputeDetector())
+```
+
+`Finding` requires `finding_id`, at least one `resource_ids` entry, `category`, `summary`, and `evidence`. Use a stable id such as `{detector}-{resource_id}` so the next batch updates the same row. Detectors only return findings. The batch runner writes them.
