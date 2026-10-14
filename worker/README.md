@@ -100,6 +100,8 @@ The built-in `noop` detector returns no findings. The built-in `sample` detector
 
 `development_scheduling` uses the environment tag. Development and staging compute qualify when the same 30-day window stays busy on Saturday and Sunday: weekend and weekday CPU averages both at or above 20, with at least 8 weekend days and 20 weekdays. The finding recommends `weekdays-09-17`, which is 09:00-17:00 UTC Monday through Friday. `i-dev-026` matches. Production does not, and a dev VM that is already quiet on weekends does not.
 
+`unattached_storage` flags a present disk with nothing depending on it, and a non-production snapshot with nothing depending on it, once the cost history is at least `STORAGE_AGE_DAYS` old. The default is 30 days. Age is the number of days from the first cost row to the last. Evidence includes `attach_state`, `age_days`, and `monthly_cost_cents` for the latest month. `vol-dev-042` is the planted unattached disk. Production snapshots are left alone.
+
 Add a detector by creating a class with `name` and `detect(self, resources, session) -> list[Finding]`, then register an instance in `worker/worker/detectors/__init__.py`:
 
 ```python

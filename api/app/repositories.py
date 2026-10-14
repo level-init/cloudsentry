@@ -298,6 +298,32 @@ class CostRecordRepository:
     def monthly_cents_by_environment(self, year: int, month: int) -> dict[str, int]:
         return _monthly_cents_grouped(self.session, year, month, ResourceRow.environment)
 
+    def age_and_latest_month_cents(self, resource_ids: list[str]) -> dict[str, tuple[int, int]]:
+        if not resource_ids:
+            return {}
+        rows = self.session.execute(
+            select(
+                CostRecordRow.resource_id,
+                CostRecordRow.period_start,
+                CostRecordRow.amount,
+            ).where(CostRecordRow.resource_id.in_(resource_ids))
+        ).all()
+        grouped: dict[str, list[tuple[datetime, float]]] = {}
+        for resource_id, period_start, amount in rows:
+            grouped.setdefault(resource_id, []).append((period_start, float(amount)))
+        summaries: dict[str, tuple[int, int]] = {}
+        for resource_id, samples in grouped.items():
+            oldest = min(period for period, _amount in samples)
+            latest = max(period for period, _amount in samples)
+            age_days = (latest.date() - oldest.date()).days
+            month_cents = sum(
+                _cents(amount)
+                for period, amount in samples
+                if period.year == latest.year and period.month == latest.month
+            )
+            summaries[resource_id] = (age_days, month_cents)
+        return summaries
+
     def latest_month(self) -> tuple[int, int] | None:
         latest = self.session.scalar(select(func.max(CostRecordRow.period_start)))
         if latest is None:
@@ -328,6 +354,16 @@ class DependencyRepository:
             self.session.execute(_edge_insert(chunk))
         self.session.flush()
         return created, len(edges) - created
+
+    def targets_with_dependents(self, resource_ids: list[str]) -> set[str]:
+        if not resource_ids:
+            return set()
+        rows = self.session.scalars(
+            select(DependencyRow.target_resource_id)
+            .where(DependencyRow.target_resource_id.in_(resource_ids))
+            .distinct()
+        ).all()
+        return set(rows)
 
     def dependencies_of(self, resource_id: str) -> list[Dependency]:
         rows = self.session.scalars(
