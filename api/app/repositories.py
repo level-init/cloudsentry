@@ -10,14 +10,16 @@ from sqlalchemy.orm import Session
 from app.proposals import (
     ApprovalStatus,
     ExecutionStatus,
+    Finding,
     OptimizationProposal,
     RiskAssessment,
     VerificationStatus,
 )
-from app.schemas import CostRecord, Dependency, Incident, MetricRollup, Resource
+from app.schemas import CostRecord, Dependency, DetectionRun, Incident, MetricRollup, Resource
 from app.tables import (
     CostRecordRow,
     DependencyRow,
+    DetectionRunRow,
     FindingRow,
     IncidentRow,
     MetricRollupRow,
@@ -43,6 +45,8 @@ class ResourceRepository:
                 business_criticality=resource.business_criticality.value,
                 tags=resource.tags,
                 present=True,
+                sku=resource.sku,
+                storage_class=resource.storage_class,
             )
         )
         self.session.flush()
@@ -61,6 +65,8 @@ class ResourceRepository:
         row.business_criticality = resource.business_criticality.value
         row.tags = dict(resource.tags)
         row.present = True
+        row.sku = resource.sku
+        row.storage_class = resource.storage_class
         self.session.flush()
         return False
 
@@ -161,6 +167,64 @@ class MetricRollupRepository:
         ).all()
         return {resource_id: (float(average), float(peak)) for resource_id, average, peak in rows}
 
+    def latest_day(self, name: str) -> date | None:
+        return self.session.scalar(
+            select(func.max(MetricRollupRow.day)).where(MetricRollupRow.name == name)
+        )
+
+    def window_summary(
+        self,
+        resource_ids: list[str],
+        name: str,
+        start: date,
+        end: date,
+    ) -> dict[str, tuple[float, float, int]]:
+        if not resource_ids or end <= start:
+            return {}
+        rows = self.session.execute(
+            select(
+                MetricRollupRow.resource_id,
+                func.avg(MetricRollupRow.avg_value),
+                func.max(MetricRollupRow.peak_value),
+                func.count(),
+            )
+            .where(
+                MetricRollupRow.resource_id.in_(resource_ids),
+                MetricRollupRow.name == name,
+                MetricRollupRow.day >= start,
+                MetricRollupRow.day < end,
+            )
+            .group_by(MetricRollupRow.resource_id)
+        ).all()
+        return {
+            resource_id: (float(average), float(peak), int(days))
+            for resource_id, average, peak, days in rows
+        }
+
+    def daily_averages(
+        self,
+        resource_ids: list[str],
+        name: str,
+        start: date,
+        end: date,
+    ) -> dict[str, list[tuple[date, float]]]:
+        if not resource_ids or end <= start:
+            return {}
+        rows = self.session.execute(
+            select(MetricRollupRow.resource_id, MetricRollupRow.day, MetricRollupRow.avg_value)
+            .where(
+                MetricRollupRow.resource_id.in_(resource_ids),
+                MetricRollupRow.name == name,
+                MetricRollupRow.day >= start,
+                MetricRollupRow.day < end,
+            )
+            .order_by(MetricRollupRow.resource_id, MetricRollupRow.day)
+        ).all()
+        grouped: dict[str, list[tuple[date, float]]] = {}
+        for resource_id, day, average in rows:
+            grouped.setdefault(resource_id, []).append((day, float(average)))
+        return grouped
+
     def count(self, resource_id: str, name: str) -> int:
         return int(
             self.session.scalar(
@@ -237,6 +301,32 @@ class CostRecordRepository:
     def monthly_cents_by_environment(self, year: int, month: int) -> dict[str, int]:
         return _monthly_cents_grouped(self.session, year, month, ResourceRow.environment)
 
+    def age_and_latest_month_cents(self, resource_ids: list[str]) -> dict[str, tuple[int, int]]:
+        if not resource_ids:
+            return {}
+        rows = self.session.execute(
+            select(
+                CostRecordRow.resource_id,
+                CostRecordRow.period_start,
+                CostRecordRow.amount,
+            ).where(CostRecordRow.resource_id.in_(resource_ids))
+        ).all()
+        grouped: dict[str, list[tuple[datetime, float]]] = {}
+        for resource_id, period_start, amount in rows:
+            grouped.setdefault(resource_id, []).append((period_start, float(amount)))
+        summaries: dict[str, tuple[int, int]] = {}
+        for resource_id, samples in grouped.items():
+            oldest = min(period for period, _amount in samples)
+            latest = max(period for period, _amount in samples)
+            age_days = (latest.date() - oldest.date()).days
+            month_cents = sum(
+                _cents(amount)
+                for period, amount in samples
+                if period.year == latest.year and period.month == latest.month
+            )
+            summaries[resource_id] = (age_days, month_cents)
+        return summaries
+
     def latest_month(self) -> tuple[int, int] | None:
         latest = self.session.scalar(select(func.max(CostRecordRow.period_start)))
         if latest is None:
@@ -267,6 +357,16 @@ class DependencyRepository:
             self.session.execute(_edge_insert(chunk))
         self.session.flush()
         return created, len(edges) - created
+
+    def targets_with_dependents(self, resource_ids: list[str]) -> set[str]:
+        if not resource_ids:
+            return set()
+        rows = self.session.scalars(
+            select(DependencyRow.target_resource_id)
+            .where(DependencyRow.target_resource_id.in_(resource_ids))
+            .distinct()
+        ).all()
+        return set(rows)
 
     def dependencies_of(self, resource_id: str) -> list[Dependency]:
         rows = self.session.scalars(
@@ -306,6 +406,75 @@ class IncidentRepository:
             .order_by(IncidentRow.started_at, IncidentRow.incident_id)
         ).all()
         return [_incident_from_row(row) for row in rows]
+
+
+class DetectionRunRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def create(
+        self,
+        *,
+        trigger: str,
+        interval_seconds: int,
+        started_at: datetime,
+        finished_at: datetime,
+        detectors: int,
+        created: int,
+        updated: int,
+        findings: int,
+    ) -> DetectionRun:
+        row = DetectionRunRow(
+            trigger=trigger,
+            interval_seconds=interval_seconds,
+            started_at=started_at,
+            finished_at=finished_at,
+            detectors=detectors,
+            created=created,
+            updated=updated,
+            findings=findings,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return _detection_run_from_row(row)
+
+    def get(self, run_id: int) -> DetectionRun | None:
+        row = self.session.get(DetectionRunRow, run_id)
+        if row is None:
+            return None
+        return _detection_run_from_row(row)
+
+
+class FindingRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def upsert(self, finding: Finding) -> bool:
+        row = self.session.get(FindingRow, finding.finding_id)
+        if row is None:
+            self.session.add(
+                FindingRow(
+                    finding_id=finding.finding_id,
+                    resource_ids=list(finding.resource_ids),
+                    category=finding.category,
+                    summary=finding.summary,
+                    evidence=list(finding.evidence),
+                )
+            )
+            self.session.flush()
+            return True
+        row.resource_ids = list(finding.resource_ids)
+        row.category = finding.category
+        row.summary = finding.summary
+        row.evidence = list(finding.evidence)
+        self.session.flush()
+        return False
+
+    def get(self, finding_id: str) -> Finding | None:
+        row = self.session.get(FindingRow, finding_id)
+        if row is None:
+            return None
+        return _finding_from_row(row)
 
 
 class ProposalRepository:
@@ -532,6 +701,30 @@ def _incident_insert(incidents: list[Incident]):
     )
 
 
+def _detection_run_from_row(row: DetectionRunRow) -> DetectionRun:
+    return DetectionRun(
+        run_id=row.run_id,
+        trigger=row.trigger,
+        interval_seconds=row.interval_seconds,
+        started_at=row.started_at,
+        finished_at=row.finished_at,
+        detectors=row.detectors,
+        created=row.created,
+        updated=row.updated,
+        findings=row.findings,
+    )
+
+
+def _finding_from_row(row: FindingRow) -> Finding:
+    return Finding(
+        finding_id=row.finding_id,
+        resource_ids=list(row.resource_ids),
+        category=row.category,
+        summary=row.summary,
+        evidence=list(row.evidence),
+    )
+
+
 def _dependency_from_row(row: DependencyRow) -> Dependency:
     return Dependency(
         source_resource_id=row.source_resource_id,
@@ -561,6 +754,8 @@ def _resource_from_row(row: ResourceRow) -> Resource:
         business_criticality=row.business_criticality,
         tags=row.tags,
         present=row.present,
+        sku=row.sku,
+        storage_class=row.storage_class,
     )
 
 

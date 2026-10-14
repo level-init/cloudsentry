@@ -42,6 +42,8 @@ class Resource(BaseModel):
     business_criticality: BusinessCriticality
     tags: dict[str, str] = Field(default_factory=dict)
     present: bool = True
+    sku: str | None = None
+    storage_class: str | None = None
 
 
 class ResourceSummary(Resource):
@@ -148,6 +150,20 @@ class DependencyList(BaseModel):
     resource_id: str = Field(min_length=1)
     items: list[Dependency]
     total: int = Field(ge=0)
+
+
+class DetectionRun(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    run_id: int
+    trigger: str = Field(pattern=r"^(manual|schedule)$")
+    interval_seconds: int = Field(gt=0)
+    started_at: datetime
+    finished_at: datetime
+    detectors: int = Field(ge=0)
+    created: int = Field(ge=0)
+    updated: int = Field(ge=0)
+    findings: int = Field(ge=0)
 
 
 class Incident(BaseModel):

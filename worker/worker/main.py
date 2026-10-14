@@ -3,9 +3,11 @@ import sys
 
 from worker.billing_ingest import ingest_billing
 from worker.config import get_settings
+from worker.detectors import DetectResult, detect
 from worker.inventory import ingest_inventory
 from worker.knowledge_ingest import ingest_knowledge
 from worker.metric_ingest import ingest_metrics
+from worker.schedule import detect_scheduled
 
 
 def run() -> None:
@@ -63,7 +65,24 @@ def main() -> None:
             counts.incidents_updated,
         )
         return
+    if sys.argv[1:] == ["detect"]:
+        _log_findings(detect())
+        return
+    if sys.argv[1:] == ["detect-schedule"]:
+        _log_findings(detect_scheduled())
+        return
     raise SystemExit(f"unknown command {sys.argv[1]}")
+
+
+def _log_findings(result: DetectResult) -> None:
+    for finding in result.findings:
+        logging.info(
+            "finding %s category=%s resources=%s evidence=%s",
+            finding.finding_id,
+            finding.category,
+            ",".join(finding.resource_ids),
+            len(finding.evidence),
+        )
 
 
 if __name__ == "__main__":

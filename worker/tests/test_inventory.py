@@ -46,7 +46,8 @@ def test_mapping_uses_owner_team_and_criticality_tags() -> None:
     assert resource.team == "payments"
     assert resource.business_criticality == "low"
     assert resource.tags["criticality"] == "low"
-    assert "sku" not in resource.model_dump()
+    assert resource.sku == "t3.medium"
+    assert resource.storage_class is None
 
 
 def test_missing_criticality_tag_is_rejected() -> None:
