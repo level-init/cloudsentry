@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from app.db import create_session
-from app.proposals import ApprovalStatus, OptimizationProposal
+from app.proposals import ApprovalStatus, OptimizationProposal, RiskClass
 from app.repositories import (
     CostRecordRepository,
     DependencyRepository,
@@ -86,7 +86,10 @@ def propose(session: Session) -> ProposeResult:
         plan = builder(resource, finding.evidence, current)
         if plan is None:
             continue
-        existing = proposals.find_open(finding.resource_ids, plan.action)
+        if finding.category == "rightsizing_veto":
+            existing = proposals.find_with_action(finding.resource_ids, plan.action)
+        else:
+            existing = proposals.find_open(finding.resource_ids, plan.action)
         if existing is not None:
             skipped.append(existing)
             continue
@@ -100,6 +103,16 @@ def _proposal(session: Session, finding, resource: Resource, plan: _Plan) -> Opt
     edges = DependencyRepository(session).dependencies_of(resource.resource_id)
     evidence = list(finding.evidence)
     evidence.append(f"success_metric {plan.success_metric}")
+    risk = assess(session, resource.resource_id)
+    approval = ApprovalStatus.pending
+    if finding.category == "rightsizing_veto":
+        approval = ApprovalStatus.rejected
+        risk = risk.model_copy(
+            update={
+                "risk_class": RiskClass.rejected,
+                "reasons": [*risk.reasons, _veto_reason(finding.evidence)],
+            }
+        )
     return OptimizationProposal(
         proposal_id=_proposal_id(session, finding.finding_id),
         finding_id=finding.finding_id,
@@ -115,8 +128,8 @@ def _proposal(session: Session, finding, resource: Resource, plan: _Plan) -> Opt
         preconditions=plan.preconditions,
         proposed_actions=[plan.action],
         rollback_plan=[plan.rollback],
-        approval_status=ApprovalStatus.pending,
-        risk_assessment=assess(session, resource.resource_id),
+        approval_status=approval,
+        risk_assessment=risk,
     )
 
 
@@ -236,12 +249,38 @@ def _lifecycle(resource: Resource, evidence: list[str], current: int | None) -> 
     )
 
 
+def _veto(resource: Resource, evidence: list[str], current: int | None) -> _Plan | None:
+    rejected = _value(evidence, "rejected_sku")
+    current_sku = _value(evidence, "current_sku")
+    if not rejected or not current_sku:
+        return None
+    cents = 0 if current is None else current
+    return _Plan(
+        action=f"reject resize of {resource.resource_id} to {rejected}",
+        rollback=f"keep {resource.resource_id} at {current_sku}",
+        savings=Savings(cents, cents),
+        preconditions=["projected peak on the next sku stays over the headroom cap"],
+        success_metric=f"sku stays {current_sku}",
+    )
+
+
+def _veto_reason(evidence: list[str]) -> str:
+    rejected = _value(evidence, "rejected_sku") or "the next sku"
+    projected = _value(evidence, "projected_peak") or "over the cap"
+    two_step = _value(evidence, "two_step_projected_peak")
+    reason = f"Rejected resize to {rejected} because the projected CPU peak is {projected}"
+    if two_step is not None:
+        reason = f"{reason}. A two-step drop would project {two_step}"
+    return reason
+
+
 _BUILDERS = {
     "idle_compute": _idle,
     "compute_rightsizing": _rightsizing,
     "development_scheduling": _scheduling,
     "unattached_storage": _unattached,
     "storage_lifecycle": _lifecycle,
+    "rightsizing_veto": _veto,
 }
 
 
