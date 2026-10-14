@@ -98,6 +98,8 @@ The built-in `noop` detector returns no findings. The built-in `sample` detector
 
 `compute_rightsizing` uses that same 30-day window. The compute ladder is `t3.medium`, `m5.large`, `m5.xlarge`, and each step has twice the capacity of the step below. The detector recommends only the next smaller SKU, and only when the average is under `RIGHTSIZING_AVG_MAX` (default 15) and the projected peak on that next size stays under `(1 - RIGHTSIZING_HEADROOM) * 100`. Headroom defaults to 0.5, so the projected peak must stay under 50. `i-prd-013` is an `m5.xlarge` with a peak near 12, so the recommendation is `m5.large`. `i-prd-017` peaks at 100. That projects to 200 on `m5.large` and 400 on `t3.medium`, so it is not offered the two-step drop. Run inventory ingestion again after upgrading so `sku` is stored.
 
+`development_scheduling` uses the environment tag. Development and staging compute qualify when the same 30-day window stays busy on Saturday and Sunday: weekend and weekday CPU averages both at or above 20, with at least 8 weekend days and 20 weekdays. The finding recommends `weekdays-09-17`, which is 09:00-17:00 UTC Monday through Friday. `i-dev-026` matches. Production does not, and a dev VM that is already quiet on weekends does not.
+
 Add a detector by creating a class with `name` and `detect(self, resources, session) -> list[Finding]`, then register an instance in `worker/worker/detectors/__init__.py`:
 
 ```python

@@ -198,6 +198,30 @@ class MetricRollupRepository:
             for resource_id, average, peak, days in rows
         }
 
+    def daily_averages(
+        self,
+        resource_ids: list[str],
+        name: str,
+        start: date,
+        end: date,
+    ) -> dict[str, list[tuple[date, float]]]:
+        if not resource_ids or end <= start:
+            return {}
+        rows = self.session.execute(
+            select(MetricRollupRow.resource_id, MetricRollupRow.day, MetricRollupRow.avg_value)
+            .where(
+                MetricRollupRow.resource_id.in_(resource_ids),
+                MetricRollupRow.name == name,
+                MetricRollupRow.day >= start,
+                MetricRollupRow.day < end,
+            )
+            .order_by(MetricRollupRow.resource_id, MetricRollupRow.day)
+        ).all()
+        grouped: dict[str, list[tuple[date, float]]] = {}
+        for resource_id, day, average in rows:
+            grouped.setdefault(resource_id, []).append((day, float(average)))
+        return grouped
+
     def count(self, resource_id: str, name: str) -> int:
         return int(
             self.session.scalar(
