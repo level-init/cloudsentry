@@ -36,7 +36,7 @@ def run_batch(session: Session, registry: DetectorRegistry | None = None) -> Det
     resources = [resource for resource in ResourceRepository(session).list() if resource.present]
     findings: list[Finding] = []
     for detector in chosen.detectors():
-        findings.extend(detector.detect(resources))
+        findings.extend(detector.detect(resources, session))
     repository = FindingRepository(session)
     created = 0
     for finding in findings:

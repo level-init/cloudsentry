@@ -94,10 +94,12 @@ Inventory and knowledge syncs compare the full simulator resource list with the 
 
 The built-in `noop` detector returns no findings. The built-in `sample` detector returns one finding for each present resource tagged `scenario=sample`. The finding includes that resource id and an evidence list.
 
-Add a detector by creating a class with `name` and `detect(self, resources) -> list[Finding]`, then register an instance in `worker/worker/detectors/__init__.py`:
+`idle_compute` looks at the 30 days ending the day after the latest `cpu_percent` rollup. A present compute resource is idle when that window is complete and all of these stay under the cap: CPU average 15, CPU peak 25, request average 20, request peak 30. Evidence lists those four numbers and the resource tags. `i-dev-062` matches. `i-prd-017` does not: its CPU average is low, and its peak is 100. A flat low VM such as `i-prd-013` also matches; rightsizing it is a later detector.
+
+Add a detector by creating a class with `name` and `detect(self, resources, session) -> list[Finding]`, then register an instance in `worker/worker/detectors/__init__.py`:
 
 ```python
-default_registry().register(IdleComputeDetector())
+default_registry().register(MyDetector())
 ```
 
 `Finding` requires `finding_id`, at least one `resource_ids` entry, `category`, `summary`, and `evidence`. Use a stable id such as `{detector}-{resource_id}` so the next batch updates the same row. Detectors only return findings. The batch runner writes them.

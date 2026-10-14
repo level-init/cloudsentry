@@ -1,10 +1,12 @@
 """Detector interface and registry.
 
-A detector reads the resources it is given and returns Findings. It does not
-write to the database. The batch runner persists what the detectors return.
+A detector reads the resources it is given and may read the session. It does
+not write. The batch runner persists what the detectors return.
 """
 
 from typing import Protocol
+
+from sqlalchemy.orm import Session
 
 from app.proposals import Finding
 from app.schemas import Resource
@@ -13,7 +15,7 @@ from app.schemas import Resource
 class Detector(Protocol):
     name: str
 
-    def detect(self, resources: list[Resource]) -> list[Finding]:
+    def detect(self, resources: list[Resource], session: Session) -> list[Finding]:
         """Return findings for this pass. An empty list is a successful no-op."""
 
 
