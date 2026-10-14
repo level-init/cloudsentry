@@ -90,7 +90,7 @@ Inventory and knowledge syncs compare the full simulator resource list with the 
 
 ## Detectors
 
-`make detect` runs every registered detector over present resources and upserts the findings. The log line is `detect detectors=N created=C updated=U findings=F`. A finding is stored by `finding_id`. A second run updates that id.
+`make detect` runs every registered detector over present resources and upserts the findings. That is the manual trigger. `make detect-schedule` is the scheduled path: one invocation is one cron tick. Run it every `DETECTION_INTERVAL_SECONDS` (default 3600). A queue is not required. Each path logs `detect started` and `detect finished` with the trigger, the run id, and the detector, created, updated, and finding counts. Both insert one `detection_runs` row. A finding is stored by `finding_id`. A later tick updates that id instead of inserting another row.
 
 The built-in `noop` detector returns no findings. The built-in `sample` detector returns one finding for each present resource tagged `scenario=sample`. The finding includes that resource id and an evidence list.
 
