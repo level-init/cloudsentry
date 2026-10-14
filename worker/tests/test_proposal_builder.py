@@ -118,7 +118,7 @@ def _assert_idle(proposal: OptimizationProposal) -> None:
     assert payload["execution_status"] == "not_started"
     assert payload["verification_status"] == "not_started"
     assert payload["realized_savings"] is None
-    assert payload["risk_assessment"]["risk_class"] == "APPROVAL_REQUIRED"
+    assert payload["risk_assessment"]["risk_class"] == "SAFE_AUTOMATION"
     assert payload["risk_assessment"]["risk_score"] == 0.05
     assert "It depends on 1 resource" in payload["risk_assessment"]["reasons"]
     assert payload["risk_assessment"]["reasons"]

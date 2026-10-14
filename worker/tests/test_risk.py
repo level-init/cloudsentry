@@ -14,12 +14,19 @@ from app.repositories import (
     ResourceRepository,
 )
 from app.schemas import Dependency, Incident, MetricRollup, Resource
-from worker.risk import RiskInputs, assess, score_risk
+from worker.risk import RiskInputs, assess, risk_class_for, score_risk
 
 # Shapes from simulator/DEMO_SCENARIOS.md: i-dev-062 and i-prd-017.
 _DEV_IDLE = RiskInputs("development", "low", 11.95, 2, 0, ())
 _SPIKE = RiskInputs("production", "medium", 100.0, 2, 0, ())
 _PROD_INCIDENT = RiskInputs("production", "high", 11.93, 2, 1, ("high",))
+
+
+def test_score_maps_onto_every_risk_class() -> None:
+    assert risk_class_for(0.05) == RiskClass.safe_automation
+    assert risk_class_for(0.20) == RiskClass.approval_required
+    assert risk_class_for(0.45) == RiskClass.engineering_review_required
+    assert risk_class_for(0.75) == RiskClass.rejected
 
 
 def test_dev_idle_scores_below_the_production_spike_trap() -> None:
@@ -37,8 +44,9 @@ def test_dev_idle_scores_below_the_production_spike_trap() -> None:
     assert "CPU peak is 100.00" in spike.reasons
     assert "1 incident is recorded, highest severity high" in watched.reasons
     assert "1 resource depends on it" in watched.reasons
-    assert idle.risk_class == RiskClass.approval_required
-    assert spike.risk_class == RiskClass.approval_required
+    assert idle.risk_class == RiskClass.safe_automation
+    assert spike.risk_class == RiskClass.engineering_review_required
+    assert watched.risk_class == RiskClass.rejected
 
 
 @pytest.fixture

@@ -8,7 +8,7 @@ from app.db import sqlalchemy_database_url
 from app.proposals import ApprovalStatus, ExecutionStatus, OptimizationProposal, RiskAssessment
 from app.repositories import ProposalRepository, ResourceRepository
 from app.schemas import Resource
-from app.tables import FindingRow
+from app.tables import FindingRow, PolicyRow
 
 
 @pytest.fixture
@@ -172,3 +172,43 @@ def test_update_proposal_status(session: Session) -> None:
     assert updated.approval_status == "approved"
     assert updated.execution_status == "queued"
     assert updated.verification_status == "not_started"
+
+
+def test_rejected_proposal_stays_out_of_execution_unless_a_policy_allows_it(
+    session: Session,
+) -> None:
+    session.add(
+        FindingRow(
+            finding_id="find-rejected",
+            resource_ids=["i-prd-017"],
+            category="rightsizing_veto",
+            summary="do not resize the spike trap",
+            evidence=["projected peak 200"],
+        )
+    )
+    session.flush()
+    repository = ProposalRepository(session)
+    created = _proposal("opt-rejected", "find-rejected")
+    created.risk_assessment = RiskAssessment(
+        risk_score=0.65,
+        risk_class="REJECTED",
+        reasons=["projected peak does not fit"],
+    )
+    repository.create(created)
+
+    with pytest.raises(ValueError, match="cannot be approved"):
+        repository.update_status("opt-rejected", approval_status=ApprovalStatus.approved)
+    with pytest.raises(ValueError, match="cannot be approved"):
+        repository.update_status("opt-rejected", execution_status=ExecutionStatus.queued)
+
+    session.add(PolicyRow(name="override-rejected", effect="allow", actions=["approve_rejected"]))
+    session.flush()
+    updated = repository.update_status(
+        "opt-rejected",
+        approval_status=ApprovalStatus.approved,
+        execution_status=ExecutionStatus.queued,
+    )
+
+    assert updated is not None
+    assert updated.approval_status == "approved"
+    assert updated.execution_status == "queued"

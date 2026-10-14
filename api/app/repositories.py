@@ -14,6 +14,7 @@ from app.proposals import (
     Finding,
     OptimizationProposal,
     RiskAssessment,
+    RiskClass,
     VerificationStatus,
 )
 from app.schemas import CostRecord, Dependency, DetectionRun, Incident, MetricRollup, Resource
@@ -24,6 +25,7 @@ from app.tables import (
     FindingRow,
     IncidentRow,
     MetricRollupRow,
+    PolicyRow,
     ProposalRow,
     ResourceRow,
     RiskAssessmentRow,
@@ -548,6 +550,11 @@ class ProposalRepository:
         row = self.session.get(ProposalRow, proposal_id)
         if row is None:
             return None
+        blocked = _rejected_execution_blocked(
+            self.session, proposal_id, approval_status, execution_status
+        )
+        if blocked:
+            raise ValueError(f"rejected proposal {proposal_id} cannot be approved into execution")
         if approval_status is not None:
             row.approval_status = approval_status.value
         if execution_status is not None:
@@ -556,6 +563,40 @@ class ProposalRepository:
             row.verification_status = verification_status.value
         self.session.flush()
         return self.get(proposal_id)
+
+
+def _rejected_execution_blocked(
+    session: Session,
+    proposal_id: str,
+    approval_status: ApprovalStatus | None,
+    execution_status: ExecutionStatus | None,
+) -> bool:
+    if not _starts_execution(approval_status, execution_status):
+        return False
+    risk = session.scalar(
+        select(RiskAssessmentRow).where(RiskAssessmentRow.proposal_id == proposal_id)
+    )
+    if risk is None or risk.risk_class != RiskClass.rejected.value:
+        return False
+    return not _override_allows_rejected(session)
+
+
+def _starts_execution(
+    approval_status: ApprovalStatus | None,
+    execution_status: ExecutionStatus | None,
+) -> bool:
+    if approval_status == ApprovalStatus.approved:
+        return True
+    return execution_status in {
+        ExecutionStatus.queued,
+        ExecutionStatus.running,
+        ExecutionStatus.succeeded,
+    }
+
+
+def _override_allows_rejected(session: Session) -> bool:
+    rows = session.scalars(select(PolicyRow)).all()
+    return any(row.effect == "allow" and "approve_rejected" in row.actions for row in rows)
 
 
 _Item = TypeVar("_Item")

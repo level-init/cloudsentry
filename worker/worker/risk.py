@@ -10,9 +10,11 @@ peak, and no incidents stays near 0. That is why i-prd-017 scores above
 i-dev-062, and a production resource with a dependent and an incident scores
 higher still.
 
-The class stays APPROVAL_REQUIRED. Mapping a score onto SAFE_AUTOMATION,
-ENGINEERING_REVIEW_REQUIRED, or REJECTED is a later step. v1 still waits for
-a person to approve before anything runs.
+The rounded score maps to a class: under 0.20 is SAFE_AUTOMATION, under 0.45
+is APPROVAL_REQUIRED, under 0.75 is ENGINEERING_REVIEW_REQUIRED, and 0.75 or
+more is REJECTED. SAFE_AUTOMATION still stays pending until a person approves.
+v1 does not execute it on its own. A rightsizing veto can force REJECTED even
+when the score is lower.
 """
 
 from dataclasses import dataclass
@@ -36,6 +38,9 @@ _DEPENDENCY = 0.05
 _DEPENDENT = 0.1
 _DEPENDENT_CAP = 0.2
 _INCIDENT_CAP = 0.2
+_SAFE_BELOW = 0.20
+_APPROVAL_BELOW = 0.45
+_REVIEW_BELOW = 0.75
 
 
 @dataclass(frozen=True)
@@ -77,11 +82,22 @@ def score_risk(inputs: RiskInputs) -> RiskAssessment:
     )
     dependencies = _DEPENDENCY if inputs.dependency_count else 0.0
     total = environment + criticality + peak + dependents + incident_points + dependencies
+    score = round(min(total, 1.0), 2)
     return RiskAssessment(
-        risk_score=round(min(total, 1.0), 2),
-        risk_class=RiskClass.approval_required,
+        risk_score=score,
+        risk_class=risk_class_for(score),
         reasons=_reasons(inputs),
     )
+
+
+def risk_class_for(score: float) -> RiskClass:
+    if score < _SAFE_BELOW:
+        return RiskClass.safe_automation
+    if score < _APPROVAL_BELOW:
+        return RiskClass.approval_required
+    if score < _REVIEW_BELOW:
+        return RiskClass.engineering_review_required
+    return RiskClass.rejected
 
 
 def _cpu_peak(session: Session, resource_id: str) -> float | None:
