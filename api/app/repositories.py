@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.proposals import (
     ApprovalStatus,
     ExecutionStatus,
+    Finding,
     OptimizationProposal,
     RiskAssessment,
     VerificationStatus,
@@ -308,6 +309,38 @@ class IncidentRepository:
         return [_incident_from_row(row) for row in rows]
 
 
+class FindingRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def upsert(self, finding: Finding) -> bool:
+        row = self.session.get(FindingRow, finding.finding_id)
+        if row is None:
+            self.session.add(
+                FindingRow(
+                    finding_id=finding.finding_id,
+                    resource_ids=list(finding.resource_ids),
+                    category=finding.category,
+                    summary=finding.summary,
+                    evidence=list(finding.evidence),
+                )
+            )
+            self.session.flush()
+            return True
+        row.resource_ids = list(finding.resource_ids)
+        row.category = finding.category
+        row.summary = finding.summary
+        row.evidence = list(finding.evidence)
+        self.session.flush()
+        return False
+
+    def get(self, finding_id: str) -> Finding | None:
+        row = self.session.get(FindingRow, finding_id)
+        if row is None:
+            return None
+        return _finding_from_row(row)
+
+
 class ProposalRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -529,6 +562,16 @@ def _incident_insert(incidents: list[Incident]):
             "started_at": statement.excluded.started_at,
             "summary": statement.excluded.summary,
         },
+    )
+
+
+def _finding_from_row(row: FindingRow) -> Finding:
+    return Finding(
+        finding_id=row.finding_id,
+        resource_ids=list(row.resource_ids),
+        category=row.category,
+        summary=row.summary,
+        evidence=list(row.evidence),
     )
 
 

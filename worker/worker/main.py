@@ -3,6 +3,7 @@ import sys
 
 from worker.billing_ingest import ingest_billing
 from worker.config import get_settings
+from worker.detectors import detect
 from worker.inventory import ingest_inventory
 from worker.knowledge_ingest import ingest_knowledge
 from worker.metric_ingest import ingest_metrics
@@ -62,6 +63,24 @@ def main() -> None:
             counts.incidents_created,
             counts.incidents_updated,
         )
+        return
+    if sys.argv[1:] == ["detect"]:
+        result = detect()
+        logging.info(
+            "detect detectors=%s created=%s updated=%s findings=%s",
+            result.detectors,
+            result.created,
+            result.updated,
+            len(result.findings),
+        )
+        for finding in result.findings:
+            logging.info(
+                "finding %s category=%s resources=%s evidence=%s",
+                finding.finding_id,
+                finding.category,
+                ",".join(finding.resource_ids),
+                len(finding.evidence),
+            )
         return
     raise SystemExit(f"unknown command {sys.argv[1]}")
 
