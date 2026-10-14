@@ -162,6 +162,40 @@ class MetricRollupRepository:
         ).all()
         return {resource_id: (float(average), float(peak)) for resource_id, average, peak in rows}
 
+    def latest_day(self, name: str) -> date | None:
+        return self.session.scalar(
+            select(func.max(MetricRollupRow.day)).where(MetricRollupRow.name == name)
+        )
+
+    def window_summary(
+        self,
+        resource_ids: list[str],
+        name: str,
+        start: date,
+        end: date,
+    ) -> dict[str, tuple[float, float, int]]:
+        if not resource_ids or end <= start:
+            return {}
+        rows = self.session.execute(
+            select(
+                MetricRollupRow.resource_id,
+                func.avg(MetricRollupRow.avg_value),
+                func.max(MetricRollupRow.peak_value),
+                func.count(),
+            )
+            .where(
+                MetricRollupRow.resource_id.in_(resource_ids),
+                MetricRollupRow.name == name,
+                MetricRollupRow.day >= start,
+                MetricRollupRow.day < end,
+            )
+            .group_by(MetricRollupRow.resource_id)
+        ).all()
+        return {
+            resource_id: (float(average), float(peak), int(days))
+            for resource_id, average, peak, days in rows
+        }
+
     def count(self, resource_id: str, name: str) -> int:
         return int(
             self.session.scalar(
