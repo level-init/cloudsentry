@@ -45,6 +45,7 @@ class ResourceRepository:
                 tags=resource.tags,
                 present=True,
                 sku=resource.sku,
+                storage_class=resource.storage_class,
             )
         )
         self.session.flush()
@@ -64,6 +65,7 @@ class ResourceRepository:
         row.tags = dict(resource.tags)
         row.present = True
         row.sku = resource.sku
+        row.storage_class = resource.storage_class
         self.session.flush()
         return False
 
@@ -701,6 +703,7 @@ def _resource_from_row(row: ResourceRow) -> Resource:
         tags=row.tags,
         present=row.present,
         sku=row.sku,
+        storage_class=row.storage_class,
     )
 
 

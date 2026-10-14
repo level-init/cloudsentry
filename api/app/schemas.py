@@ -43,6 +43,7 @@ class Resource(BaseModel):
     tags: dict[str, str] = Field(default_factory=dict)
     present: bool = True
     sku: str | None = None
+    storage_class: str | None = None
 
 
 class ResourceSummary(Resource):

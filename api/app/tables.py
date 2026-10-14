@@ -26,6 +26,7 @@ class ResourceRow(Base):
         Boolean, nullable=False, default=True, server_default="true"
     )
     sku: Mapped[str | None] = mapped_column(String, nullable=True)
+    storage_class: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class MetricRow(Base):
