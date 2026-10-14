@@ -6,11 +6,13 @@ from worker.detectors.noop import NoOpDetector
 from worker.detectors.registry import Detector, DetectorRegistry, default_registry
 from worker.detectors.rightsizing import RightsizingDetector
 from worker.detectors.sample import SampleDetector
+from worker.detectors.scheduling import SchedulingDetector
 
 default_registry().register(NoOpDetector())
 default_registry().register(SampleDetector())
 default_registry().register(IdleComputeDetector())
 default_registry().register(RightsizingDetector())
+default_registry().register(SchedulingDetector())
 
 __all__ = [
     "DetectResult",
@@ -20,6 +22,7 @@ __all__ = [
     "NoOpDetector",
     "RightsizingDetector",
     "SampleDetector",
+    "SchedulingDetector",
     "default_registry",
     "detect",
     "run_batch",
