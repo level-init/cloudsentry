@@ -1,5 +1,6 @@
 """Persistence for resources and optimization proposals."""
 
+from collections.abc import Sequence
 from datetime import date, datetime, timezone
 from typing import TypeVar
 
@@ -518,7 +519,7 @@ class ProposalRepository:
             for proposal, risk in self.session.execute(statement)
         ]
 
-    def find_open(self, resource_ids: list[str], action: str) -> OptimizationProposal | None:
+    def find_open(self, resource_ids: Sequence[str], action: str) -> OptimizationProposal | None:
         for proposal in self.list(approval_status=ApprovalStatus.pending.value):
             if list(proposal.resource_ids) == list(resource_ids) and proposal.proposed_actions == [
                 action
