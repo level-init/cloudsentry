@@ -115,6 +115,8 @@ class PolicyRow(Base):
     name: Mapped[str] = mapped_column(String, primary_key=True)
     effect: Mapped[str] = mapped_column(String, nullable=False)
     actions: Mapped[list] = mapped_column(JSONB, nullable=False)
+    environment: Mapped[str | None] = mapped_column(String, nullable=True)
+    resource_type: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class DetectionRunRow(Base):

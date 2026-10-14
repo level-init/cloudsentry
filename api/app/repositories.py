@@ -8,6 +8,7 @@ from sqlalchemy import func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.policy import Decision, default_policies, evaluate
 from app.proposals import (
     ApprovalStatus,
     ExecutionStatus,
@@ -17,7 +18,16 @@ from app.proposals import (
     RiskClass,
     VerificationStatus,
 )
-from app.schemas import CostRecord, Dependency, DetectionRun, Incident, MetricRollup, Resource
+from app.schemas import (
+    CostRecord,
+    Dependency,
+    DetectionRun,
+    Incident,
+    MetricRollup,
+    Policy,
+    PolicyEffect,
+    Resource,
+)
 from app.tables import (
     CostRecordRow,
     DependencyRow,
@@ -484,6 +494,36 @@ class FindingRepository:
         return [_finding_from_row(row) for row in rows]
 
 
+class PolicyRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def list(self) -> list[Policy]:
+        rows = self.session.scalars(select(PolicyRow).order_by(PolicyRow.name)).all()
+        return [_policy_from_row(row) for row in rows]
+
+    def upsert(self, policy: Policy) -> bool:
+        row = self.session.get(PolicyRow, policy.name)
+        created = row is None
+        if row is None:
+            self.session.add(_policy_row(policy))
+        else:
+            row.effect = policy.effect.value
+            row.actions = list(policy.actions)
+            row.environment = _environment_value(policy)
+            row.resource_type = policy.resource_type
+        self.session.flush()
+        return created
+
+    def seed_defaults(self) -> Sequence[str]:
+        added: list[str] = []
+        for policy in default_policies():
+            if self.session.get(PolicyRow, policy.name) is None:
+                self.upsert(policy)
+                added.append(policy.name)
+        return added
+
+
 class ProposalRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -555,6 +595,11 @@ class ProposalRepository:
         )
         if blocked:
             raise ValueError(f"rejected proposal {proposal_id} cannot be approved into execution")
+        prohibited = _prohibited_execution(
+            self.session, proposal_id, approval_status, execution_status
+        )
+        if prohibited is not None:
+            raise ValueError(f"policy {prohibited} prohibits {proposal_id}")
         if approval_status is not None:
             row.approval_status = approval_status.value
         if execution_status is not None:
@@ -592,6 +637,64 @@ def _starts_execution(
         ExecutionStatus.running,
         ExecutionStatus.succeeded,
     }
+
+
+def _prohibited_execution(
+    session: Session,
+    proposal_id: str,
+    approval_status: ApprovalStatus | None,
+    execution_status: ExecutionStatus | None,
+) -> str | None:
+    if not _starts_execution(approval_status, execution_status):
+        return None
+    proposal = session.get(ProposalRow, proposal_id)
+    if proposal is None:
+        return None
+    policies = PolicyRepository(session).list()
+    for resource_id in proposal.resource_ids:
+        resource = session.get(ResourceRow, resource_id)
+        if resource is None:
+            continue
+        for action in proposal.proposed_actions:
+            decision = _decision(policies, action, resource)
+            if decision.effect == PolicyEffect.prohibit:
+                return decision.name
+    return None
+
+
+def _decision(policies: Sequence[Policy], action: str, resource: ResourceRow) -> Decision:
+    return evaluate(
+        policies,
+        action=action,
+        environment=resource.environment,
+        resource_type=resource.resource_type,
+    )
+
+
+def _policy_from_row(row: PolicyRow) -> Policy:
+    return Policy(
+        name=row.name,
+        effect=row.effect,
+        actions=list(row.actions),
+        environment=row.environment,
+        resource_type=row.resource_type,
+    )
+
+
+def _policy_row(policy: Policy) -> PolicyRow:
+    return PolicyRow(
+        name=policy.name,
+        effect=policy.effect.value,
+        actions=list(policy.actions),
+        environment=_environment_value(policy),
+        resource_type=policy.resource_type,
+    )
+
+
+def _environment_value(policy: Policy) -> str | None:
+    if policy.environment is None:
+        return None
+    return policy.environment.value
 
 
 def _override_allows_rejected(session: Session) -> bool:

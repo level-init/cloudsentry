@@ -1,0 +1,18 @@
+# Org rules from the product overview. allow does not execute an action.
+# v1 still waits for a person to approve.
+policies:
+  - name: prohibit-delete-production-database
+    effect: prohibit
+    actions: [delete]
+    environment: production
+    resource_type: database
+  - name: require-approval-development-schedule
+    effect: require_approval
+    actions: [schedule]
+    environment: development
+    resource_type: compute
+  - name: allow-development-stop
+    effect: allow
+    actions: [stop]
+    environment: development
+    resource_type: compute
