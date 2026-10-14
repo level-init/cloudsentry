@@ -14,7 +14,9 @@ These are the positive fixtures for the five MVP detectors, plus one spike-trap 
 | Expensive snapshot | `snap-dev-007` | `expensive-snapshot` | Development 1 TB snapshot. |
 | Spike-trap | `i-prd-017` | `spike-trap-prod` | Production `m5.xlarge`. Average CPU stays near 7%, with a Wednesday 15:00 UTC peak near 100%. Do not rightsize. |
 
-`i-prd-005` is a different production instance: it also looks idle, and it has incident `inc-prd-idle`. It is not one of these waste fixtures.
+`i-prd-005` is a different production instance: it also looks idle, and it has incident `inc-prd-idle`. It is not one of these waste fixtures. Idle detection and one-step rightsizing still match it. The incident does not remove the finding.
+
+`i-prd-017` must not be flagged as idle, rightsized, or scheduled. Its average looks low enough, and the Wednesday peak is the veto. The check is `worker/tests/test_seeded_waste.py`. Precision expectations for the rest of the seed are in `worker/README.md`.
 
 From the repository root:
 

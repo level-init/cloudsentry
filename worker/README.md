@@ -104,6 +104,26 @@ The built-in `noop` detector returns no findings. The built-in `sample` detector
 
 `storage_lifecycle` proposes a rule for two planted fixtures. Standard object storage whose latest month costs at least `LIFECYCLE_COST_CENTS` (default 5000) gets `transition-to-infrequent-access`. `bucket-prd-022` is `s3-standard-5tb` and matches. A 500 GB standard bucket does not, and a bucket already on `infrequent_access` does not. A non-production snapshot at that cost, with nothing depending on it, and at least `LIFECYCLE_RETENTION_DAYS` old (default 90) gets `expire-after-90-days`. `snap-dev-007` matches. Evidence includes the current tier, an access proxy, and the monthly cost. For a bucket the proxy is the 30-day request average. For a snapshot it is `unused`. Production snapshots are left alone. Run inventory ingestion again after upgrading so `storage_class` is stored. A standard SKU such as `s3-standard-5tb` still counts as the standard tier when the class is empty.
 
+## Precision on the seeded company
+
+The five detectors are rules. They do not look up the `scenario` tag. The required hits are the ids in [simulator/DEMO_SCENARIOS.md](../simulator/DEMO_SCENARIOS.md). `worker/tests/test_seeded_waste.py` plants those ids and runs in CI with the rest of `make test`.
+
+| Detector | Required hit |
+| --- | --- |
+| `idle_compute` | `i-dev-062` |
+| `compute_rightsizing` | `i-prd-013`, recommended `m5.large`, not `t3.medium` |
+| `development_scheduling` | `i-dev-026` |
+| `unattached_storage` | `vol-dev-042` and `snap-dev-007` |
+| `storage_lifecycle` | `bucket-prd-022` and `snap-dev-007` |
+
+Two overlaps are expected. `i-prd-013` is flat and low, so it is idle and a rightsizing candidate. `snap-dev-007` is an unused development snapshot and a retention candidate.
+
+`i-prd-017` is the spike-trap negative. Its CPU average is about 7, which is under the idle cap and under `RIGHTSIZING_AVG_MAX`, so the average alone would pass. The Wednesday peak near 100 vetoes both findings. Projecting that peak onto `m5.large` is 200, and onto `t3.medium` is 400, so it is not offered the two-step drop. It is production, so scheduling does not apply either.
+
+`i-prd-005` is the soft case. It is not in the demo table. It is a production `m5.large` with a flat low CPU, and it has incident `inc-prd-idle`. Idle detection and one-step rightsizing to `t3.medium` both still match. The incident does not suppress a finding. Softening that proposal belongs to risk classification, which is later than detection.
+
+The other 180 resources can match the same rules. Extra idle VMs, unattached disks, and always-on development or staging compute are true positives. A failure is a missing required id, or a finding on `i-prd-017`.
+
 Add a detector by creating a class with `name` and `detect(self, resources, session) -> list[Finding]`, then register an instance in `worker/worker/detectors/__init__.py`:
 
 ```python
