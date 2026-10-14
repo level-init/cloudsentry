@@ -2,8 +2,8 @@
 
 One database row per resource returned by GET /resources. owner, team, and
 business_criticality are the owner, team, and criticality tags. Simulator
-fields that are not columns (name, sku, power_state, schedule, storage_class)
-are left behind. Metrics and billing are not ingested. A second run updates
+fields that are not columns (name, power_state, schedule, storage_class)
+are left behind. sku is stored. Metrics and billing are not ingested. A second run updates
 the same resource ids. A resource missing from that full list is marked
 present=false and kept, along with its history.
 """
@@ -90,6 +90,7 @@ def resource_from_simulator(payload: dict) -> Resource:
         team=tags["team"],
         business_criticality=tags["criticality"],
         tags=tags,
+        sku=payload.get("sku") or None,
     )
 
 

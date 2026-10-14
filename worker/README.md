@@ -32,7 +32,7 @@ Rules:
 - `GET /resources` is followed with `limit` and `offset` until every resource in `total` is read.
 - Each simulator resource becomes one `resources` row. A later full sync that omits it sets `present` to false and leaves the row in place.
 - `owner`, `team`, and `business_criticality` are copied from the `owner`, `team`, and `criticality` tags. A resource missing one of those tags fails the job.
-- `name`, `sku`, `power_state`, `schedule`, and `storage_class` are not columns and are not stored.
+- `sku` is stored. `name`, `power_state`, `schedule`, and `storage_class` are not columns and are not stored.
 - Metrics and billing are not ingested.
 - Running the job again updates the existing `resource_id` rows. `created` is 0 and the table does not grow.
 
@@ -94,7 +94,9 @@ Inventory and knowledge syncs compare the full simulator resource list with the 
 
 The built-in `noop` detector returns no findings. The built-in `sample` detector returns one finding for each present resource tagged `scenario=sample`. The finding includes that resource id and an evidence list.
 
-`idle_compute` looks at the 30 days ending the day after the latest `cpu_percent` rollup. A present compute resource is idle when that window is complete and all of these stay under the cap: CPU average 15, CPU peak 25, request average 20, request peak 30. Evidence lists those four numbers and the resource tags. `i-dev-062` matches. `i-prd-017` does not: its CPU average is low, and its peak is 100. A flat low VM such as `i-prd-013` also matches; rightsizing it is a later detector.
+`idle_compute` looks at the 30 days ending the day after the latest `cpu_percent` rollup. A present compute resource is idle when that window is complete and all of these stay under the cap: CPU average 15, CPU peak 25, request average 20, request peak 30. Evidence lists those four numbers and the resource tags. `i-dev-062` matches. `i-prd-017` does not: its CPU average is low, and its peak is 100. A flat low VM such as `i-prd-013` also matches; rightsizing it is a separate detector.
+
+`compute_rightsizing` uses that same 30-day window. The compute ladder is `t3.medium`, `m5.large`, `m5.xlarge`, and each step has twice the capacity of the step below. The detector recommends only the next smaller SKU, and only when the average is under `RIGHTSIZING_AVG_MAX` (default 15) and the projected peak on that next size stays under `(1 - RIGHTSIZING_HEADROOM) * 100`. Headroom defaults to 0.5, so the projected peak must stay under 50. `i-prd-013` is an `m5.xlarge` with a peak near 12, so the recommendation is `m5.large`. `i-prd-017` peaks at 100. That projects to 200 on `m5.large` and 400 on `t3.medium`, so it is not offered the two-step drop. Run inventory ingestion again after upgrading so `sku` is stored.
 
 Add a detector by creating a class with `name` and `detect(self, resources, session) -> list[Finding]`, then register an instance in `worker/worker/detectors/__init__.py`:
 

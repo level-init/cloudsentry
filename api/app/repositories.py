@@ -44,6 +44,7 @@ class ResourceRepository:
                 business_criticality=resource.business_criticality.value,
                 tags=resource.tags,
                 present=True,
+                sku=resource.sku,
             )
         )
         self.session.flush()
@@ -62,6 +63,7 @@ class ResourceRepository:
         row.business_criticality = resource.business_criticality.value
         row.tags = dict(resource.tags)
         row.present = True
+        row.sku = resource.sku
         self.session.flush()
         return False
 
@@ -638,6 +640,7 @@ def _resource_from_row(row: ResourceRow) -> Resource:
         business_criticality=row.business_criticality,
         tags=row.tags,
         present=row.present,
+        sku=row.sku,
     )
 
 
