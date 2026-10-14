@@ -119,7 +119,9 @@ def _assert_idle(proposal: OptimizationProposal) -> None:
     assert payload["verification_status"] == "not_started"
     assert payload["realized_savings"] is None
     assert payload["risk_assessment"]["risk_class"] == "APPROVAL_REQUIRED"
-    assert payload["risk_assessment"]["risk_score"] == 0.5
+    assert payload["risk_assessment"]["risk_score"] == 0.05
+    assert "It depends on 1 resource" in payload["risk_assessment"]["reasons"]
+    assert payload["risk_assessment"]["reasons"]
 
 
 def _assert_actions(by_finding: dict[str, OptimizationProposal]) -> None:

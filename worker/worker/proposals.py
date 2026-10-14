@@ -16,12 +16,7 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from app.db import create_session
-from app.proposals import (
-    ApprovalStatus,
-    OptimizationProposal,
-    RiskAssessment,
-    RiskClass,
-)
+from app.proposals import ApprovalStatus, OptimizationProposal
 from app.repositories import (
     CostRecordRepository,
     DependencyRepository,
@@ -30,6 +25,7 @@ from app.repositories import (
     ResourceRepository,
 )
 from app.schemas import Resource
+from worker.risk import assess
 from worker.savings import (
     Savings,
     delete_savings,
@@ -120,7 +116,7 @@ def _proposal(session: Session, finding, resource: Resource, plan: _Plan) -> Opt
         proposed_actions=[plan.action],
         rollback_plan=[plan.rollback],
         approval_status=ApprovalStatus.pending,
-        risk_assessment=_risk(),
+        risk_assessment=assess(session, resource.resource_id),
     )
 
 
@@ -133,14 +129,6 @@ def _proposal_id(session: Session, finding_id: str) -> str:
     while repository.get(f"{base}-{suffix}") is not None:
         suffix += 1
     return f"{base}-{suffix}"
-
-
-def _risk() -> RiskAssessment:
-    return RiskAssessment(
-        risk_score=0.5,
-        risk_class=RiskClass.approval_required,
-        reasons=["v1 keeps the proposal pending until a person approves it"],
-    )
 
 
 def _idle(resource: Resource, evidence: list[str], current: int | None) -> _Plan | None:
