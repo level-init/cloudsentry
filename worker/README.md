@@ -32,7 +32,7 @@ Rules:
 - `GET /resources` is followed with `limit` and `offset` until every resource in `total` is read.
 - Each simulator resource becomes one `resources` row. A later full sync that omits it sets `present` to false and leaves the row in place.
 - `owner`, `team`, and `business_criticality` are copied from the `owner`, `team`, and `criticality` tags. A resource missing one of those tags fails the job.
-- `sku` is stored. `name`, `power_state`, `schedule`, and `storage_class` are not columns and are not stored.
+- `sku` and `storage_class` are stored. `name`, `power_state`, and `schedule` are not columns and are not stored.
 - Metrics and billing are not ingested.
 - Running the job again updates the existing `resource_id` rows. `created` is 0 and the table does not grow.
 
@@ -101,6 +101,8 @@ The built-in `noop` detector returns no findings. The built-in `sample` detector
 `development_scheduling` uses the environment tag. Development and staging compute qualify when the same 30-day window stays busy on Saturday and Sunday: weekend and weekday CPU averages both at or above 20, with at least 8 weekend days and 20 weekdays. The finding recommends `weekdays-09-17`, which is 09:00-17:00 UTC Monday through Friday. `i-dev-026` matches. Production does not, and a dev VM that is already quiet on weekends does not.
 
 `unattached_storage` flags a present disk with nothing depending on it, and a non-production snapshot with nothing depending on it, once the cost history is at least `STORAGE_AGE_DAYS` old. The default is 30 days. Age is the number of days from the first cost row to the last. Evidence includes `attach_state`, `age_days`, and `monthly_cost_cents` for the latest month. `vol-dev-042` is the planted unattached disk. Production snapshots are left alone.
+
+`storage_lifecycle` proposes a rule for two planted fixtures. Standard object storage whose latest month costs at least `LIFECYCLE_COST_CENTS` (default 5000) gets `transition-to-infrequent-access`. `bucket-prd-022` is `s3-standard-5tb` and matches. A 500 GB standard bucket does not, and a bucket already on `infrequent_access` does not. A non-production snapshot at that cost, with nothing depending on it, and at least `LIFECYCLE_RETENTION_DAYS` old (default 90) gets `expire-after-90-days`. `snap-dev-007` matches. Evidence includes the current tier, an access proxy, and the monthly cost. For a bucket the proxy is the 30-day request average. For a snapshot it is `unused`. Production snapshots are left alone. Run inventory ingestion again after upgrading so `storage_class` is stored. A standard SKU such as `s3-standard-5tb` still counts as the standard tier when the class is empty.
 
 Add a detector by creating a class with `name` and `detect(self, resources, session) -> list[Finding]`, then register an instance in `worker/worker/detectors/__init__.py`:
 
