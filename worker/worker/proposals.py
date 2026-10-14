@@ -5,8 +5,7 @@ the proposal stores dollars. The compute rates and the 40/168 weekday schedule
 match simulator/simulator/billing.py. Success metrics are evidence lines
 because the proposal object has no separate field for them.
 
-Risk classification is later. Every proposal stays pending and
-APPROVAL_REQUIRED. A second build skips a pending proposal with the same
+A second build skips a pending proposal with the same
 resource ids and the same action. A rejected proposal does not block a new one.
 """
 
