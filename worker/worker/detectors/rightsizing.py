@@ -109,5 +109,41 @@ def projected_peak(current: str, target: str, cpu_peak: float) -> float:
     return cpu_peak * _CAPACITY[current] / _CAPACITY[target]
 
 
+def veto_sku(
+    current: str,
+    cpu_avg: float,
+    cpu_peak: float,
+    *,
+    headroom: float,
+    avg_max: float,
+) -> str | None:
+    """The next smaller sku when the average looks safe and the peak does not fit.
+
+    A spike such as i-prd-017 has a low average, so a one-step resize looks
+    tempting, but the projected peak is over the headroom cap. That sku is
+    rejected instead of recommended. The smallest sku has no smaller step.
+    """
+    if next_sku(current, cpu_avg, cpu_peak, headroom=headroom, avg_max=avg_max) is not None:
+        return None
+    if current not in _CAPACITY or cpu_avg >= avg_max:
+        return None
+    index = _LADDER.index(current)
+    if index == 0:
+        return None
+    target = _LADDER[index - 1]
+    if projected_peak(current, target, cpu_peak) < (1 - headroom) * 100:
+        return None
+    return target
+
+
+def two_step_sku(current: str) -> str | None:
+    if current not in _CAPACITY:
+        return None
+    index = _LADDER.index(current)
+    if index < 2:
+        return None
+    return _LADDER[index - 2]
+
+
 def _tags(tags: dict[str, str]) -> str:
     return " ".join(f"{key}={tags[key]}" for key in sorted(tags))

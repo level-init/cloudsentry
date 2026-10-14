@@ -9,6 +9,7 @@ from worker.detectors.rightsizing import RightsizingDetector
 from worker.detectors.sample import SampleDetector
 from worker.detectors.scheduling import SchedulingDetector
 from worker.detectors.storage import UnattachedStorageDetector
+from worker.detectors.veto import RightsizingVetoDetector
 
 default_registry().register(NoOpDetector())
 default_registry().register(SampleDetector())
@@ -17,6 +18,7 @@ default_registry().register(RightsizingDetector())
 default_registry().register(SchedulingDetector())
 default_registry().register(UnattachedStorageDetector())
 default_registry().register(LifecycleDetector())
+default_registry().register(RightsizingVetoDetector())
 
 __all__ = [
     "DetectResult",
@@ -26,6 +28,7 @@ __all__ = [
     "LifecycleDetector",
     "NoOpDetector",
     "RightsizingDetector",
+    "RightsizingVetoDetector",
     "SampleDetector",
     "SchedulingDetector",
     "UnattachedStorageDetector",
