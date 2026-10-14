@@ -104,6 +104,22 @@ The built-in `noop` detector returns no findings. The built-in `sample` detector
 
 `storage_lifecycle` proposes a rule for two planted fixtures. Standard object storage whose latest month costs at least `LIFECYCLE_COST_CENTS` (default 5000) gets `transition-to-infrequent-access`. `bucket-prd-022` is `s3-standard-5tb` and matches. A 500 GB standard bucket does not, and a bucket already on `infrequent_access` does not. A non-production snapshot at that cost, with nothing depending on it, and at least `LIFECYCLE_RETENTION_DAYS` old (default 90) gets `expire-after-90-days`. `snap-dev-007` matches. Evidence includes the current tier, an access proxy, and the monthly cost. For a bucket the proxy is the 30-day request average. For a snapshot it is `unused`. Production snapshots are left alone. Run inventory ingestion again after upgrading so `storage_class` is stored. A standard SKU such as `s3-standard-5tb` still counts as the standard tier when the class is empty.
 
+## Proposals
+
+`make propose` reads stored findings and writes one pending Optimization Proposal for each MVP category. Sample findings are ignored. The action and the rollback are templates:
+
+| Category | Action | Rollback |
+| --- | --- | --- |
+| `idle_compute` | `stop {id}` | `start {id}` |
+| `compute_rightsizing` | `resize {id} to {sku}` | `resize {id}` back to the current sku |
+| `development_scheduling` | `schedule {id} weekdays-09-17` | `schedule {id} always_on` |
+| `unattached_storage` | `delete {id}` | recreate the disk or snapshot |
+| `storage_lifecycle` | transition to `infrequent_access`, or `expire {id}` | transition back to `standard`, or recreate the snapshot from its source disk |
+
+Current cost is the latest month. A stopped resource or a deleted disk or snapshot predicts 0. A weekday schedule predicts `cents * 40 // 168`. Infrequent access predicts half. The next compute sku uses the simulator monthly rate. Evidence from the finding is copied, and a `success_metric` line is added. Dependencies are `relationship target` strings. Preconditions restate the detector gate. Confidence is 0.8. Risk stays `APPROVAL_REQUIRED` with score 0.5 until risk classification exists. The JSON fields are the ones in the product overview.
+
+A later run skips a pending proposal with the same resource ids and the same action. Rejecting that proposal lets a new id be created. The log line is `propose created=N skipped=S`.
+
 ## Precision on the seeded company
 
 The five detectors are rules. They do not look up the `scenario` tag. The required hits are the ids in [simulator/DEMO_SCENARIOS.md](../simulator/DEMO_SCENARIOS.md). `worker/tests/test_seeded_waste.py` plants those ids and runs in CI with the rest of `make test`.

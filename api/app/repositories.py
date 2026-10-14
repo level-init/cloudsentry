@@ -476,6 +476,10 @@ class FindingRepository:
             return None
         return _finding_from_row(row)
 
+    def list(self) -> list[Finding]:
+        rows = self.session.scalars(select(FindingRow).order_by(FindingRow.finding_id)).all()
+        return [_finding_from_row(row) for row in rows]
+
 
 class ProposalRepository:
     def __init__(self, session: Session) -> None:
@@ -513,6 +517,14 @@ class ProposalRepository:
             _proposal_from_rows(proposal, risk)
             for proposal, risk in self.session.execute(statement)
         ]
+
+    def find_open(self, resource_ids: list[str], action: str) -> OptimizationProposal | None:
+        for proposal in self.list(approval_status=ApprovalStatus.pending.value):
+            if list(proposal.resource_ids) == list(resource_ids) and proposal.proposed_actions == [
+                action
+            ]:
+                return proposal
+        return None
 
     def update_status(
         self,
