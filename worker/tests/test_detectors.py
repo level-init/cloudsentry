@@ -52,7 +52,7 @@ def test_batch_runs_sample_and_noop_and_keeps_the_finding(session: Session) -> N
     sample = _one(first.findings, "sample-i-detect-sample")
     stored = FindingRepository(session).get("sample-i-detect-sample")
 
-    assert first.detectors == 3
+    assert first.detectors == 4
     assert sample.resource_ids == ["i-detect-sample"]
     assert sample.category == "sample"
     assert sample.evidence == ["tag scenario=sample on i-detect-sample"]

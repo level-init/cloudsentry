@@ -42,6 +42,7 @@ class Resource(BaseModel):
     business_criticality: BusinessCriticality
     tags: dict[str, str] = Field(default_factory=dict)
     present: bool = True
+    sku: str | None = None
 
 
 class ResourceSummary(Resource):
