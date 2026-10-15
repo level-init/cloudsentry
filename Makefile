@@ -1,4 +1,4 @@
-.PHONY: install compose-up migrate migrate-down run-api run-web run-simulator run-worker ingest-inventory ingest-metrics ingest-billing ingest-knowledge detect detect-schedule propose seed-simulator simulator-metrics simulator-billing simulator-tags simulator-deps simulator-incidents simulator-scenarios lint test
+.PHONY: install compose-up migrate migrate-down run-api run-web run-simulator run-worker ingest-inventory ingest-metrics ingest-billing ingest-knowledge detect detect-schedule propose explain seed-simulator simulator-metrics simulator-billing simulator-tags simulator-deps simulator-incidents simulator-scenarios lint test
 
 BIN := $(if $(wildcard .venv/bin/ruff),.venv/bin/,)
 
@@ -72,6 +72,9 @@ detect-schedule:
 
 propose:
 	.venv/bin/python -m worker.main propose
+
+explain:
+	.venv/bin/python -m worker.main explain
 
 lint:
 	$(BIN)ruff check api worker simulator

@@ -609,6 +609,14 @@ class ProposalRepository:
         self.session.flush()
         return self.get(proposal_id)
 
+    def set_narrative(self, proposal_id: str, narrative: str) -> OptimizationProposal | None:
+        row = self.session.get(ProposalRow, proposal_id)
+        if row is None:
+            return None
+        row.narrative = narrative
+        self.session.flush()
+        return self.get(proposal_id)
+
 
 def _rejected_execution_blocked(
     session: Session,
@@ -943,6 +951,7 @@ def _proposal_row(proposal: OptimizationProposal) -> ProposalRow:
         proposed_actions=proposal.proposed_actions,
         rollback_plan=proposal.rollback_plan,
         success_metrics=proposal.success_metrics,
+        narrative=proposal.narrative,
         approval_status=proposal.approval_status.value,
         execution_status=proposal.execution_status.value,
         verification_status=proposal.verification_status.value,
@@ -977,6 +986,7 @@ def _proposal_from_rows(row: ProposalRow, risk: RiskAssessmentRow) -> Optimizati
         proposed_actions=row.proposed_actions,
         rollback_plan=row.rollback_plan,
         success_metrics=row.success_metrics,
+        narrative=row.narrative,
         approval_status=row.approval_status,
         execution_status=row.execution_status,
         verification_status=row.verification_status,

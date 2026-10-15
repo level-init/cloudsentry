@@ -120,6 +120,8 @@ Current cost is the latest month. `worker/worker/savings.py` is the only savings
 
 A later run skips a pending proposal with the same resource ids and the same action. Rejecting that proposal lets a new id be created. The log line is `propose created=N skipped=S`.
 
+`make explain` writes a `narrative` on each stored proposal. `EXPLAINER` defaults to `stub`, which is what CI runs. The stub copies the structured monthly costs, predicted savings, and risk score into the text. `EXPLAINER=llm` sends the same facts to an OpenAI-compatible chat API at `EXPLAINER_BASE_URL` using `EXPLAINER_MODEL`. That call needs `EXPLAINER_API_KEY`. The prompt says not to change the savings or risk numbers and not to invent new ones. A narrative that does not contain those exact numbers is rejected and is not stored.
+
 ## Precision on the seeded company
 
 The five detectors are rules. They do not look up the `scenario` tag. The required hits are the ids in [simulator/DEMO_SCENARIOS.md](../simulator/DEMO_SCENARIOS.md). `worker/tests/test_seeded_waste.py` plants those ids and runs in CI with the rest of `make test`.

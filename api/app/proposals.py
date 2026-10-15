@@ -87,6 +87,7 @@ class OptimizationProposal(BaseModel):
     execution_status: ExecutionStatus = ExecutionStatus.not_started
     verification_status: VerificationStatus = VerificationStatus.not_started
     realized_savings: float | None = None
+    narrative: str | None = None
     risk_assessment: RiskAssessment
 
     @model_validator(mode="before")
@@ -110,6 +111,13 @@ class OptimizationProposal(BaseModel):
         if any(not line.strip() for line in lines):
             raise ValueError("plan lines must be non-blank")
         return lines
+
+    @field_validator("narrative")
+    @classmethod
+    def _reject_blank_narrative(cls, narrative: str | None) -> str | None:
+        if narrative is not None and not narrative.strip():
+            raise ValueError("narrative must be non-blank")
+        return narrative
 
     @computed_field
     @property
