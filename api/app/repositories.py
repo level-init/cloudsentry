@@ -1,10 +1,11 @@
 """Persistence for resources and optimization proposals."""
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import TypeVar
 
-from sqlalchemy import func, select, tuple_
+from sqlalchemy import exists, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -524,6 +525,12 @@ class PolicyRepository:
         return added
 
 
+@dataclass(frozen=True)
+class ProposalPage:
+    items: Sequence[OptimizationProposal]
+    total: int
+
+
 class ProposalRepository:
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -549,17 +556,62 @@ class ProposalRepository:
         return _proposal_from_rows(row, risk)
 
     def list(self, approval_status: str | None = None) -> list[OptimizationProposal]:
+        items, _total = self._query(approval_status=approval_status)
+        return list(items)
+
+    def page(
+        self,
+        *,
+        approval_status: str | None = None,
+        risk_class: str | None = None,
+        environment: str | None = None,
+        team: str | None = None,
+        category: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> ProposalPage:
+        items, total = self._query(
+            approval_status=approval_status,
+            risk_class=risk_class,
+            environment=environment,
+            team=team,
+            category=category,
+            limit=limit,
+            offset=offset,
+        )
+        return ProposalPage(items=items, total=total)
+
+    def _query(
+        self,
+        *,
+        approval_status: str | None = None,
+        risk_class: str | None = None,
+        environment: str | None = None,
+        team: str | None = None,
+        category: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> tuple[Sequence[OptimizationProposal], int]:
         statement = select(ProposalRow, RiskAssessmentRow).join(
             RiskAssessmentRow,
             RiskAssessmentRow.proposal_id == ProposalRow.proposal_id,
         )
         if approval_status is not None:
             statement = statement.where(ProposalRow.approval_status == approval_status)
+        if risk_class is not None:
+            statement = statement.where(RiskAssessmentRow.risk_class == risk_class)
+        if category is not None:
+            statement = statement.where(ProposalRow.category == category)
+        if environment is not None:
+            statement = statement.where(_linked_resource(ResourceRow.environment == environment))
+        if team is not None:
+            statement = statement.where(_linked_resource(ResourceRow.team == team))
+        total = self.session.scalar(select(func.count()).select_from(statement.subquery())) or 0
         statement = statement.order_by(ProposalRow.proposal_id)
-        return [
-            _proposal_from_rows(proposal, risk)
-            for proposal, risk in self.session.execute(statement)
-        ]
+        if limit is not None:
+            statement = statement.limit(limit).offset(offset)
+        rows = self.session.execute(statement).all()
+        return [_proposal_from_rows(proposal, risk) for proposal, risk in rows], total
 
     def find_with_action(
         self, resource_ids: Sequence[str], action: str
@@ -616,6 +668,15 @@ class ProposalRepository:
         row.narrative = narrative
         self.session.flush()
         return self.get(proposal_id)
+
+
+def _linked_resource(criterion):
+    return exists(
+        select(ResourceRow.resource_id).where(
+            criterion,
+            ProposalRow.resource_ids.contains(func.jsonb_build_array(ResourceRow.resource_id)),
+        )
+    )
 
 
 def _rejected_execution_blocked(
