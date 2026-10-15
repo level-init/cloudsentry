@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session, sqlalchemy_database_url
 from app.main import create_app
-from app.proposals import OptimizationProposal, RiskAssessment
+from app.proposals import ApprovalStatus, OptimizationProposal, RiskAssessment
 from app.repositories import ProposalRepository, ResourceRepository
 from app.schemas import Resource
 from app.tables import FindingRow
@@ -38,6 +38,12 @@ def test_openapi_lists_proposal_routes() -> None:
 
     assert "/proposals" in schema["paths"]
     assert "/proposals/{proposal_id}" in schema["paths"]
+    approve = schema["paths"]["/proposals/{proposal_id}/approve"]["post"]
+    reject = schema["paths"]["/proposals/{proposal_id}/reject"]["post"]
+    assert approve["tags"] == ["proposals"]
+    assert reject["tags"] == ["proposals"]
+    assert "X-Actor" in {item["name"] for item in approve["parameters"]}
+    assert "X-Actor" in {item["name"] for item in reject["parameters"]}
     assert {
         "status",
         "risk_class",
@@ -102,6 +108,78 @@ def test_filters_return_the_matching_subset(session: Session) -> None:
     assert body["narrative"] is None
     assert missing.status_code == 404
     assert invalid.status_code == 422
+
+
+def test_approve_and_reject_store_the_actor_and_reason(session: Session) -> None:
+    _seed(session)
+    client = _client(session)
+    repository = ProposalRepository(session)
+
+    approved = client.post(
+        "/proposals/opt-g9-dev/approve",
+        headers={"X-Actor": "ada"},
+        json={"reason": "the idle instance can stop"},
+    )
+    rejected = client.post(
+        "/proposals/opt-g9-other/reject",
+        headers={"X-Actor": " ada "},
+        json={"reason": " keep the schedule "},
+    )
+    missing = client.post(
+        "/proposals/opt-g9-missing/approve",
+        headers={"X-Actor": "ada"},
+        json={"reason": "nothing to approve"},
+    )
+    no_actor = client.post(
+        "/proposals/opt-g9-dev/approve",
+        json={"reason": "the idle instance can stop"},
+    )
+    blank_actor = client.post(
+        "/proposals/opt-g9-dev/approve",
+        headers={"X-Actor": " "},
+        json={"reason": "the idle instance can stop"},
+    )
+    blank_reason = client.post(
+        "/proposals/opt-g9-dev/approve",
+        headers={"X-Actor": "ada"},
+        json={"reason": " "},
+    )
+    again = client.post(
+        "/proposals/opt-g9-dev/approve",
+        headers={"X-Actor": "ada"},
+        json={"reason": "approve it once more"},
+    )
+    already = client.post(
+        "/proposals/opt-g9-prod/reject",
+        headers={"X-Actor": "ada"},
+        json={"reason": "this one is already approved"},
+    )
+
+    assert approved.status_code == 200
+    assert approved.json()["approval_status"] == "approved"
+    assert approved.json()["proposal_id"] == "opt-g9-dev"
+    approval = repository.decisions("opt-g9-dev")
+    assert len(approval) == 1
+    assert approval[0].actor == "ada"
+    assert approval[0].reason == "the idle instance can stop"
+    assert approval[0].from_status == ApprovalStatus.pending
+    assert approval[0].to_status == ApprovalStatus.approved
+    assert rejected.status_code == 200
+    assert rejected.json()["approval_status"] == "rejected"
+    refusal = repository.decisions("opt-g9-other")
+    assert len(refusal) == 1
+    assert refusal[0].actor == "ada"
+    assert refusal[0].reason == "keep the schedule"
+    assert refusal[0].to_status == ApprovalStatus.rejected
+    assert missing.status_code == 404
+    assert no_actor.status_code == 422
+    assert blank_actor.status_code == 422
+    assert blank_reason.status_code == 422
+    assert again.status_code == 409
+    assert "re-approve" in again.json()["detail"]
+    assert already.status_code == 409
+    assert repository.get("opt-g9-dev").approval_status == ApprovalStatus.approved
+    assert repository.get("opt-g9-prod").approval_status == ApprovalStatus.approved
 
 
 def _client(session: Session) -> TestClient:

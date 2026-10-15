@@ -1,6 +1,13 @@
-"""List, filter, and get optimization proposals."""
+"""List, filter, get, approve, and reject optimization proposals.
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+Until sign-in exists, the caller sends the actor in the X-Actor header.
+The API trusts that header. The body carries the reason.
+"""
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
 from app.db import get_session
@@ -14,6 +21,20 @@ from app.repositories import ProposalRepository
 from app.schemas import Environment
 
 router = APIRouter(prefix="/proposals", tags=["proposals"])
+
+
+class ApprovalReason(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1)
+
+    @field_validator("reason")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("reason is required")
+        return stripped
 
 
 @router.get(
@@ -60,3 +81,66 @@ def get_proposal(proposal_id: str, session: Session = Depends(get_session)) -> O
     if proposal is None:
         raise HTTPException(status_code=404, detail="proposal not found")
     return proposal
+
+
+@router.post(
+    "/{proposal_id}/approve",
+    response_model=OptimizationProposal,
+    summary="Approve a proposal",
+    description=(
+        "Moves a pending proposal to approved and stores the actor, time, and reason. "
+        "Send the actor in the X-Actor header. That header is the assumed identity "
+        "until sign-in exists. A rejected risk class, a prohibit policy, or any "
+        "approval change other than pending to approved is refused."
+    ),
+)
+def approve_proposal(
+    proposal_id: str,
+    body: ApprovalReason,
+    x_actor: Annotated[str, Header(alias="X-Actor")],
+    session: Session = Depends(get_session),
+) -> OptimizationProposal:
+    return _decide(proposal_id, ApprovalStatus.approved, body, x_actor, session)
+
+
+@router.post(
+    "/{proposal_id}/reject",
+    response_model=OptimizationProposal,
+    summary="Reject a proposal",
+    description=(
+        "Moves a pending proposal to rejected and stores the actor, time, and reason. "
+        "Send the actor in the X-Actor header. That header is the assumed identity "
+        "until sign-in exists."
+    ),
+)
+def reject_proposal(
+    proposal_id: str,
+    body: ApprovalReason,
+    x_actor: Annotated[str, Header(alias="X-Actor")],
+    session: Session = Depends(get_session),
+) -> OptimizationProposal:
+    return _decide(proposal_id, ApprovalStatus.rejected, body, x_actor, session)
+
+
+def _decide(
+    proposal_id: str,
+    target: ApprovalStatus,
+    body: ApprovalReason,
+    actor: str,
+    session: Session,
+) -> OptimizationProposal:
+    name = actor.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="X-Actor is required")
+    try:
+        updated = ProposalRepository(session).update_status(
+            proposal_id,
+            approval_status=target,
+            actor=name,
+            reason=body.reason,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if updated is None:
+        raise HTTPException(status_code=404, detail="proposal not found")
+    return updated
