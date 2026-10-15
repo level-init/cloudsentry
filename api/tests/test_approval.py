@@ -2,14 +2,15 @@ from collections.abc import Iterator
 from datetime import datetime, timezone
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, delete, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.approval import require_transition
 from app.db import sqlalchemy_database_url
 from app.proposals import ApprovalStatus, OptimizationProposal, RiskAssessment
 from app.repositories import ProposalRepository
-from app.tables import FindingRow
+from app.tables import ApprovalDecisionRow, FindingRow
 
 _STATUSES = tuple(ApprovalStatus)
 _LEGAL = {
@@ -97,10 +98,53 @@ def test_approval_records_actor_time_and_reason_and_cannot_be_repeated(
     assert fetched.approval_status == "approved"
 
 
-def _proposal() -> OptimizationProposal:
+def test_approval_audit_rows_cannot_be_updated_or_deleted(session: Session) -> None:
+    session.add(
+        FindingRow(
+            finding_id="find-audit",
+            resource_ids=["i-audit"],
+            category="idle_compute",
+            summary="idle instance",
+            evidence=["low cpu"],
+        )
+    )
+    session.flush()
+    repository = ProposalRepository(session)
+    repository.create(_proposal("opt-audit", "find-audit"))
+    repository.update_status(
+        "opt-audit",
+        approval_status=ApprovalStatus.approved,
+        actor="ada",
+        reason="the idle instance can stop",
+    )
+
+    with pytest.raises(DBAPIError, match="append-only"):
+        with session.begin_nested():
+            session.execute(
+                update(ApprovalDecisionRow)
+                .where(ApprovalDecisionRow.proposal_id == "opt-audit")
+                .values(reason="tampered")
+            )
+            session.flush()
+    with pytest.raises(DBAPIError, match="append-only"):
+        with session.begin_nested():
+            session.execute(
+                delete(ApprovalDecisionRow).where(ApprovalDecisionRow.proposal_id == "opt-audit")
+            )
+            session.flush()
+
+    recorded = repository.decisions("opt-audit")
+    assert len(recorded) == 1
+    assert recorded[0].reason == "the idle instance can stop"
+
+
+def _proposal(
+    proposal_id: str = "opt-approve",
+    finding_id: str = "find-approve",
+) -> OptimizationProposal:
     return OptimizationProposal(
-        proposal_id="opt-approve",
-        finding_id="find-approve",
+        proposal_id=proposal_id,
+        finding_id=finding_id,
         resource_ids=["i-approve"],
         category="idle_compute",
         current_monthly_cost=30.37,
