@@ -25,7 +25,7 @@ Stop the server with Ctrl+C. `DATABASE_URL` is optional for this skeleton. The d
 
 With the API running, open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs). The schema is at [http://127.0.0.1:8000/openapi.json](http://127.0.0.1:8000/openapi.json).
 
-`/docs` lists `GET /health` under **system**. **Inventory** includes resource list and get, dependency lookup, and `GET /spend/accounts` plus `GET /spend/environments`. **Proposals** lists and gets optimization proposals.
+`/docs` lists `GET /health` under **system**. **Inventory** includes resource list and get, dependency lookup, and `GET /spend/accounts` plus `GET /spend/environments`. **Proposals** lists and gets optimization proposals, and approves or rejects a pending one.
 
 ```bash
 curl -s 'localhost:8000/proposals?status=pending&risk_class=SAFE_AUTOMATION&environment=development&team=payments&category=idle_compute&limit=20&offset=0'
@@ -35,6 +35,21 @@ curl -s localhost:8000/proposals/proposal-idle_compute-i-dev-062
 `status` is the approval status. `environment` and `team` come from a linked resource. `category` is the proposal category. `limit` defaults to 50, with a maximum of 100. `offset` defaults to 0. `total` counts every match, not just the page. An unknown id returns 404. An unknown status or risk class returns 422.
 
 A pending proposal can be approved, rejected, or cancelled. Any other approval change is refused, including approving a proposal that is already approved. Each change stores the actor, the time, and the reason. A `REJECTED` risk class still cannot be approved unless an allow policy lists `approve_rejected`.
+
+`POST /proposals/{id}/approve` and `POST /proposals/{id}/reject` return the updated proposal. Until sign-in exists, send the actor in the `X-Actor` header. The API trusts that header. The body is the reason.
+
+```bash
+curl -s -X POST localhost:8000/proposals/proposal-idle_compute-i-dev-062/approve \
+  -H 'Content-Type: application/json' \
+  -H 'X-Actor: ada' \
+  -d '{"reason":"the idle instance can stop"}'
+curl -s -X POST localhost:8000/proposals/proposal-idle_compute-i-dev-062/reject \
+  -H 'Content-Type: application/json' \
+  -H 'X-Actor: ada' \
+  -d '{"reason":"keep this instance running"}'
+```
+
+Approve sets `approval_status` to `approved`. Reject sets it to `rejected` and stores the reason. A missing proposal returns 404. A missing `X-Actor` header or a blank reason returns 422. An illegal change, including a second approve, returns 409.
 
 ```bash
 curl -s 'localhost:8000/resources?account_id=111111111111&environment=development&resource_type=compute'
