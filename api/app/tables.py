@@ -184,6 +184,19 @@ class ApprovalDecisionRow(Base):
     to_status: Mapped[str] = mapped_column(String, nullable=False)
 
 
+class NotificationRow(Base):
+    __tablename__ = "notifications"
+
+    notification_id: Mapped[int] = mapped_column(primary_key=True)
+    proposal_id: Mapped[str] = mapped_column(
+        ForeignKey("optimization_proposals.proposal_id"), nullable=False
+    )
+    owner: Mapped[str] = mapped_column(String, nullable=False)
+    team: Mapped[str] = mapped_column(String, nullable=False)
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class RiskAssessmentRow(Base):
     __tablename__ = "risk_assessments"
 

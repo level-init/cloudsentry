@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     explainer_api_key: str = ""
     explainer_model: str = "gpt-4o-mini"
     negotiation_enabled: bool = False
+    slack_webhook_enabled: bool = False
 
 
 def get_settings() -> Settings:

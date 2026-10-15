@@ -10,6 +10,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.approval import require_transition
+from app.notifications import record_pending
 from app.policy import Decision, default_policies, evaluate
 from app.proposals import (
     ApprovalDecision,
@@ -545,6 +546,7 @@ class ProposalRepository:
         self.session.add(_proposal_row(proposal))
         self.session.add(_risk_row(proposal))
         self.session.flush()
+        record_pending(self.session, proposal)
         return proposal
 
     def get(self, proposal_id: str) -> OptimizationProposal | None:

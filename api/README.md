@@ -25,7 +25,7 @@ Stop the server with Ctrl+C. `DATABASE_URL` is optional for this skeleton. The d
 
 With the API running, open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs). The schema is at [http://127.0.0.1:8000/openapi.json](http://127.0.0.1:8000/openapi.json).
 
-`/docs` lists `GET /health` under **system**. **Inventory** includes resource list and get, dependency lookup, and `GET /spend/accounts` plus `GET /spend/environments`. **Proposals** lists and gets optimization proposals, approves or rejects a pending one, and lists the approval audit.
+`/docs` lists `GET /health` under **system**. **Inventory** includes resource list and get, dependency lookup, and `GET /spend/accounts` plus `GET /spend/environments`. **Proposals** lists and gets optimization proposals, approves or rejects a pending one, and lists the approval audit. **Notifications** lists in-app notices for an owner or a team.
 
 ```bash
 curl -s 'localhost:8000/proposals?status=pending&risk_class=SAFE_AUTOMATION&environment=development&team=payments&category=idle_compute&limit=20&offset=0'
@@ -55,6 +55,12 @@ Approve sets `approval_status` to `approved`. Reject sets it to `rejected` and s
 
 ```bash
 curl -s localhost:8000/proposals/proposal-idle_compute-i-dev-062/audit
+```
+
+Creating a pending proposal writes a notification for the owner and team on the linked resource. The `owner` and `team` tags win. The resource columns are used when a tag is missing. A proposal created already rejected does not notify. `GET /notifications` requires `owner`, `team`, or both. `SLACK_WEBHOOK_ENABLED` defaults to false and is not required.
+
+```bash
+curl -s 'localhost:8000/notifications?owner=payments&team=payments'
 ```
 
 `POST /proposals/{id}/execute` queues an approved proposal. It does not change the simulator. A pending, rejected, or cancelled proposal returns 409, including a proposal labeled `SAFE_AUTOMATION`. An allow policy does not skip approval. A prohibit policy returns 409 even when the stored status is already approved. Queueing, running, or marking success through the status update is refused until the proposal is approved.

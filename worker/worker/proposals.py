@@ -42,6 +42,7 @@ from worker.savings import (
     schedule_savings,
     stop_savings,
 )
+from worker.slack import notify_slack
 
 _CONFIDENCE = 0.8
 
@@ -103,6 +104,13 @@ def propose(session: Session) -> ProposeResult:
             continue
         proposal = _proposal(session, finding, resource, plan)
         proposals.create(proposal)
+        notify_slack(
+            proposal.proposal_id,
+            enabled=(
+                get_settings().slack_webhook_enabled
+                and proposal.approval_status == ApprovalStatus.pending
+            ),
+        )
         created.append(proposal)
     return ProposeResult(created=created, skipped=skipped)
 
