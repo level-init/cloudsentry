@@ -1,4 +1,4 @@
-"""List, filter, get, approve, and reject optimization proposals.
+"""List, filter, get, approve, reject, and queue optimization proposals.
 
 Until sign-in exists, the caller sends the actor in the X-Actor header.
 The API trusts that header. The body carries the reason.
@@ -120,6 +120,30 @@ def reject_proposal(
     session: Session = Depends(get_session),
 ) -> OptimizationProposal:
     return _decide(proposal_id, ApprovalStatus.rejected, body, x_actor, session)
+
+
+@router.post(
+    "/{proposal_id}/execute",
+    response_model=OptimizationProposal,
+    summary="Queue an approved proposal",
+    description=(
+        "Accepts an approved proposal into the execution queue. "
+        "A pending, rejected, or cancelled proposal is refused, including "
+        "SAFE_AUTOMATION. A prohibit policy is refused. "
+        "This does not change the simulator."
+    ),
+)
+def execute_proposal(
+    proposal_id: str,
+    session: Session = Depends(get_session),
+) -> OptimizationProposal:
+    try:
+        updated = ProposalRepository(session).begin_execution(proposal_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if updated is None:
+        raise HTTPException(status_code=404, detail="proposal not found")
+    return updated
 
 
 def _decide(

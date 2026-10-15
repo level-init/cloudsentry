@@ -44,6 +44,8 @@ def test_openapi_lists_proposal_routes() -> None:
     assert reject["tags"] == ["proposals"]
     assert "X-Actor" in {item["name"] for item in approve["parameters"]}
     assert "X-Actor" in {item["name"] for item in reject["parameters"]}
+    execute = schema["paths"]["/proposals/{proposal_id}/execute"]["post"]
+    assert execute["tags"] == ["proposals"]
     assert {
         "status",
         "risk_class",
@@ -180,6 +182,34 @@ def test_approve_and_reject_store_the_actor_and_reason(session: Session) -> None
     assert already.status_code == 409
     assert repository.get("opt-g9-dev").approval_status == ApprovalStatus.approved
     assert repository.get("opt-g9-prod").approval_status == ApprovalStatus.approved
+
+
+def test_execute_waits_for_approval(session: Session) -> None:
+    _seed(session)
+    client = _client(session)
+
+    pending = client.post("/proposals/opt-g9-dev/execute")
+    missing = client.post("/proposals/opt-g9-missing/execute")
+    still_pending = client.get("/proposals/opt-g9-dev")
+    approved = client.post(
+        "/proposals/opt-g9-dev/approve",
+        headers={"X-Actor": "ada"},
+        json={"reason": "the idle instance can stop"},
+    )
+    queued = client.post("/proposals/opt-g9-dev/execute")
+    again = client.post("/proposals/opt-g9-dev/execute")
+
+    assert pending.status_code == 409
+    assert "must be approved" in pending.json()["detail"]
+    assert still_pending.json()["approval_status"] == "pending"
+    assert still_pending.json()["execution_status"] == "not_started"
+    assert missing.status_code == 404
+    assert approved.status_code == 200
+    assert queued.status_code == 200
+    assert queued.json()["approval_status"] == "approved"
+    assert queued.json()["execution_status"] == "queued"
+    assert again.status_code == 200
+    assert again.json()["execution_status"] == "queued"
 
 
 def _client(session: Session) -> TestClient:

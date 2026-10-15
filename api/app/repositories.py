@@ -661,6 +661,9 @@ class ProposalRepository:
         )
         if prohibited is not None:
             raise ValueError(f"policy {prohibited} prohibits {proposal_id}")
+        resulting = approval_status if approval_status is not None else current
+        if _execution_requested(execution_status) and resulting != ApprovalStatus.approved:
+            raise ValueError(f"proposal {proposal_id} must be approved before execution")
         if approval_status is not None:
             actor_name, decision_reason = _require_decision(actor, reason)
             when = datetime.now(timezone.utc) if decided_at is None else decided_at
@@ -689,6 +692,24 @@ class ProposalRepository:
             .order_by(ApprovalDecisionRow.decision_id)
         ).all()
         return [_decision_from_row(row) for row in rows]
+
+    def begin_execution(self, proposal_id: str) -> OptimizationProposal | None:
+        current = self.get(proposal_id)
+        if current is None:
+            return None
+        if current.approval_status != ApprovalStatus.approved:
+            raise ValueError(f"proposal {proposal_id} must be approved before execution")
+        if current.execution_status != ExecutionStatus.not_started:
+            prohibited = _prohibited_execution(
+                self.session,
+                proposal_id,
+                ApprovalStatus.approved,
+                ExecutionStatus.queued,
+            )
+            if prohibited is not None:
+                raise ValueError(f"policy {prohibited} prohibits {proposal_id}")
+            return current
+        return self.update_status(proposal_id, execution_status=ExecutionStatus.queued)
 
     def set_narrative(self, proposal_id: str, narrative: str) -> OptimizationProposal | None:
         row = self.session.get(ProposalRow, proposal_id)
@@ -741,17 +762,21 @@ def _rejected_execution_blocked(
     return not _override_allows_rejected(session)
 
 
+def _execution_requested(execution_status: ExecutionStatus | None) -> bool:
+    return execution_status in {
+        ExecutionStatus.queued,
+        ExecutionStatus.running,
+        ExecutionStatus.succeeded,
+    }
+
+
 def _starts_execution(
     approval_status: ApprovalStatus | None,
     execution_status: ExecutionStatus | None,
 ) -> bool:
     if approval_status == ApprovalStatus.approved:
         return True
-    return execution_status in {
-        ExecutionStatus.queued,
-        ExecutionStatus.running,
-        ExecutionStatus.succeeded,
-    }
+    return _execution_requested(execution_status)
 
 
 def _prohibited_execution(
