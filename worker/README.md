@@ -122,6 +122,8 @@ A later run skips a pending proposal with the same resource ids and the same act
 
 `make explain` writes a `narrative` on each stored proposal. `EXPLAINER` defaults to `stub`, which is what CI runs. The stub copies the structured monthly costs, predicted savings, and risk score into the text. `EXPLAINER=llm` sends the same facts to an OpenAI-compatible chat API at `EXPLAINER_BASE_URL` using `EXPLAINER_MODEL`. That call needs `EXPLAINER_API_KEY`. The prompt says not to change the savings or risk numbers and not to invent new ones. A narrative that does not contain those exact numbers is rejected and is not stored.
 
+`NEGOTIATION_ENABLED` defaults to false. While it is false, `make propose` stores the plan from the finding and does not ask for a cost-versus-reliability compromise. Turning it on calls `worker/worker/negotiation.py`. The request is the monthly cost, predicted cost, predicted savings, risk score, risk class, reasons, and the plan. The result is the plan to store and whether it changed. `NoOpNegotiator` returns that same plan with `changed` false, so the stored proposal stays the same. A later phase can replace the no-op. It does not run a debate.
+
 ## Precision on the seeded company
 
 The five detectors are rules. They do not look up the `scenario` tag. The required hits are the ids in [simulator/DEMO_SCENARIOS.md](../simulator/DEMO_SCENARIOS.md). `worker/tests/test_seeded_waste.py` plants those ids and runs in CI with the rest of `make test`.

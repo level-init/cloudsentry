@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     explainer_base_url: str = "https://api.openai.com/v1"
     explainer_api_key: str = ""
     explainer_model: str = "gpt-4o-mini"
+    negotiation_enabled: bool = False
 
 
 def get_settings() -> Settings:
