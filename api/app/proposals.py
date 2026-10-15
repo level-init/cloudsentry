@@ -130,6 +130,15 @@ class OptimizationProposal(BaseModel):
         return self.rollback_plan
 
 
+class ProposalList(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[OptimizationProposal]
+    total: int = Field(ge=0)
+    limit: int = Field(ge=1)
+    offset: int = Field(ge=0)
+
+
 def _copy_alias(data: dict[str, Any], alias: str, field: str) -> None:
     if alias not in data:
         return
