@@ -10,7 +10,7 @@ resource ids and the same action. A rejected proposal does not block a new one.
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from sqlalchemy.orm import Session
 
@@ -24,6 +24,15 @@ from app.repositories import (
     ResourceRepository,
 )
 from app.schemas import Resource
+from worker.config import get_settings
+from worker.negotiation import (
+    CompromiseRequest,
+    CostPosition,
+    Negotiator,
+    Plan,
+    ReliabilityPosition,
+    apply_negotiation,
+)
 from worker.risk import assess
 from worker.savings import (
     Savings,
@@ -112,6 +121,13 @@ def _proposal(session: Session, finding, resource: Resource, plan: _Plan) -> Opt
                 "reasons": [*risk.reasons, _veto_reason(finding.evidence)],
             }
         )
+    plan = _with_negotiation(
+        plan,
+        resource,
+        risk,
+        finding.category,
+        enabled=get_settings().negotiation_enabled,
+    )
     return OptimizationProposal(
         proposal_id=_proposal_id(session, finding.finding_id),
         finding_id=finding.finding_id,
@@ -130,6 +146,54 @@ def _proposal(session: Session, finding, resource: Resource, plan: _Plan) -> Opt
         success_metrics=[plan.success_metric],
         approval_status=approval,
         risk_assessment=risk,
+    )
+
+
+def _with_negotiation(
+    plan: _Plan,
+    resource: Resource,
+    risk,
+    category: str,
+    *,
+    enabled: bool,
+    negotiator: Negotiator | None = None,
+) -> _Plan:
+    if not enabled:
+        return plan
+    current = _dollars(plan.savings.current_cents)
+    predicted = _dollars(plan.savings.predicted_cents)
+    request = CompromiseRequest(
+        resource_id=resource.resource_id,
+        category=category,
+        cost=CostPosition(
+            current_monthly_cost=current,
+            predicted_monthly_cost=predicted,
+            predicted_monthly_savings=_dollars(plan.savings.savings_cents),
+        ),
+        reliability=ReliabilityPosition(
+            risk_score=risk.risk_score,
+            risk_class=risk.risk_class.value,
+            reasons=tuple(risk.reasons),
+        ),
+        plan=Plan(
+            action=plan.action,
+            rollback=plan.rollback,
+            preconditions=tuple(plan.preconditions),
+            success_metrics=(plan.success_metric,),
+        ),
+    )
+    result = apply_negotiation(request, enabled=True, negotiator=negotiator)
+    if not result.changed:
+        return plan
+    success_metric = plan.success_metric
+    if result.plan.success_metrics:
+        success_metric = result.plan.success_metrics[0]
+    return replace(
+        plan,
+        action=result.plan.action,
+        rollback=result.plan.rollback,
+        preconditions=list(result.plan.preconditions),
+        success_metric=success_metric,
     )
 
 
