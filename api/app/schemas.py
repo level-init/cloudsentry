@@ -182,3 +182,5 @@ class Policy(BaseModel):
     name: str = Field(min_length=1)
     effect: PolicyEffect
     actions: list[str] = Field(min_length=1)
+    environment: Environment | None = None
+    resource_type: str | None = Field(default=None, min_length=1)

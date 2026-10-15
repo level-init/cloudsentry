@@ -16,7 +16,7 @@ These are the positive fixtures for the five MVP detectors, plus one spike-trap 
 
 `i-prd-005` is a different production instance: it also looks idle, and it has incident `inc-prd-idle`. It is not one of these waste fixtures. Idle detection and one-step rightsizing still match it. The incident does not remove the finding.
 
-`i-prd-017` must not be flagged as idle, rightsized, or scheduled. Its average looks low enough, and the Wednesday peak is the veto. The check is `worker/tests/test_seeded_waste.py`. Precision expectations for the rest of the seed are in `worker/README.md`.
+`i-prd-017` must not be flagged as idle, rightsized, or scheduled. Its average looks low enough, and the Wednesday peak is the veto. Detection records a `rightsizing_veto` finding instead of a resize. Planning stores a `REJECTED` proposal whose action is `reject resize of i-prd-017 to m5.large`. It does not offer `m5.large` or the two-step drop to `t3.medium` as something that can be approved. The checks are `worker/tests/test_seeded_waste.py` and `worker/tests/test_veto.py`. Precision expectations for the rest of the seed are in `worker/README.md`.
 
 From the repository root:
 

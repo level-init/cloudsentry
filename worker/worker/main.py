@@ -4,9 +4,11 @@ import sys
 from worker.billing_ingest import ingest_billing
 from worker.config import get_settings
 from worker.detectors import DetectResult, detect
+from worker.explain import save_explanations
 from worker.inventory import ingest_inventory
 from worker.knowledge_ingest import ingest_knowledge
 from worker.metric_ingest import ingest_metrics
+from worker.proposals import save_proposals
 from worker.schedule import detect_scheduled
 
 
@@ -70,6 +72,20 @@ def main() -> None:
         return
     if sys.argv[1:] == ["detect-schedule"]:
         _log_findings(detect_scheduled())
+        return
+    if sys.argv[1:] == ["propose"]:
+        result = save_proposals()
+        for proposal in result.created:
+            logging.info(
+                "proposal %s category=%s action=%s",
+                proposal.proposal_id,
+                proposal.category,
+                proposal.proposed_actions[0],
+            )
+        return
+    if sys.argv[1:] == ["explain"]:
+        for proposal in save_explanations():
+            logging.info("narrative %s", proposal.proposal_id)
         return
     raise SystemExit(f"unknown command {sys.argv[1]}")
 

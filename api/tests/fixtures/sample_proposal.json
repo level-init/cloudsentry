@@ -1,0 +1,22 @@
+{
+  "proposal_id": "opt-1042",
+  "finding_id": "find-1",
+  "resource_ids": ["i-0a123"],
+  "category": "idle_compute",
+  "current_monthly_cost": 182.4,
+  "predicted_monthly_cost": 0,
+  "predicted_monthly_savings": 182.4,
+  "confidence": 0.94,
+  "business_criticality": "low",
+  "evidence": ["average CPU 3.7 percent over 30 days"],
+  "dependencies": ["internal-test-api"],
+  "preconditions": ["latest backup succeeded"],
+  "execution_steps": ["stop the instance outside business hours"],
+  "rollback": ["start the instance and remove the schedule"],
+  "success_metrics": ["monthly cost at or below 0.00"],
+  "risk_assessment": {
+    "risk_score": 0.12,
+    "risk_class": "APPROVAL_REQUIRED",
+    "reasons": ["development environment with no production dependencies"]
+  }
+}

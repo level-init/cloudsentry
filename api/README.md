@@ -25,7 +25,14 @@ Stop the server with Ctrl+C. `DATABASE_URL` is optional for this skeleton. The d
 
 With the API running, open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs). The schema is at [http://127.0.0.1:8000/openapi.json](http://127.0.0.1:8000/openapi.json).
 
-`/docs` lists `GET /health` under **system**. **Inventory** includes resource list and get, dependency lookup, and `GET /spend/accounts` plus `GET /spend/environments`. The **proposals** group is tagged so those routes show up on the same page as they land.
+`/docs` lists `GET /health` under **system**. **Inventory** includes resource list and get, dependency lookup, and `GET /spend/accounts` plus `GET /spend/environments`. **Proposals** lists and gets optimization proposals.
+
+```bash
+curl -s 'localhost:8000/proposals?status=pending&risk_class=SAFE_AUTOMATION&environment=development&team=payments&category=idle_compute&limit=20&offset=0'
+curl -s localhost:8000/proposals/proposal-idle_compute-i-dev-062
+```
+
+`status` is the approval status. `environment` and `team` come from a linked resource. `category` is the proposal category. `limit` defaults to 50, with a maximum of 100. `offset` defaults to 0. `total` counts every match, not just the page. An unknown id returns 404. An unknown status or risk class returns 422.
 
 ```bash
 curl -s 'localhost:8000/resources?account_id=111111111111&environment=development&resource_type=compute'
@@ -54,9 +61,11 @@ On a fresh March 2026 ingest those totals are development `111111111111` 428264 
 
 ## Core schemas
 
-`app/schemas.py` defines the inventory records: `Resource`, `Metric`, `CostRecord`, `Dependency`, `Incident`, and `Policy`. A resource carries `owner`, `team`, `environment`, `business_criticality`, and `tags`. Invalid values are rejected by Pydantic.
+`app/schemas.py` defines the inventory records: `Resource`, `Metric`, `CostRecord`, `Dependency`, `Incident`, and `Policy`. A resource carries `owner`, `team`, `environment`, `business_criticality`, and `tags`. Invalid values are rejected by Pydantic. A policy names an effect (`allow`, `require_approval`, or `prohibit`) and the actions it covers. `environment` and `resource_type` narrow the match. Leave either one empty to match every value.
 
-`app/proposals.py` defines `Finding`, `RiskAssessment`, and `OptimizationProposal`. A proposal includes cost, savings, confidence, evidence, actions, a rollback plan, and approval, execution, and verification statuses. `model_dump_json()` produces an API response.
+`app/policy.py` loads `app/default_policies.yaml`. The strictest matching rule wins. When nothing matches, the decision is `require_approval`. `PolicyRepository.seed_defaults()` inserts any missing default. Migration `0009` does that on upgrade. Deleting a production database is prohibited, so that proposal cannot be approved or queued. Scheduling development compute requires approval and can still be approved. Allowing a development stop is reserved for later guarded automation. v1 does not execute it.
+
+`app/proposals.py` defines `Finding`, `RiskAssessment`, and `OptimizationProposal`. A proposal includes cost, savings, confidence, evidence, and approval, execution, and verification statuses. The plan is always populated: `preconditions`, `execution_steps`, `rollback`, and `success_metrics`. Each list must contain at least one non-blank line. `execution_steps` is stored as `proposed_actions`, and `rollback` is stored as `rollback_plan`. `api/tests/fixtures/sample_proposal.json` is a complete example. `narrative` is optional text. The worker writes it and rejects a narrative whose savings or risk numbers differ from the structured fields. `model_dump_json()` produces an API response.
 
 `app/execution.py` defines `ExecutionRun`, `VerificationResult`, and `RealizedSavings`. Each record carries `proposal_id`. A run stores the actor, plan snapshot, timestamps, and rollback metadata. A verification result records predicted savings, realized savings, operational impact, and a status of `success`, `partial`, `rollback`, or `inconclusive`.
 

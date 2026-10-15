@@ -1,21 +1,34 @@
 """Persistence for resources and optimization proposals."""
 
+from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from typing import TypeVar
 
-from sqlalchemy import func, select, tuple_
+from sqlalchemy import exists, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.policy import Decision, default_policies, evaluate
 from app.proposals import (
     ApprovalStatus,
     ExecutionStatus,
     Finding,
     OptimizationProposal,
     RiskAssessment,
+    RiskClass,
     VerificationStatus,
 )
-from app.schemas import CostRecord, Dependency, DetectionRun, Incident, MetricRollup, Resource
+from app.schemas import (
+    CostRecord,
+    Dependency,
+    DetectionRun,
+    Incident,
+    MetricRollup,
+    Policy,
+    PolicyEffect,
+    Resource,
+)
 from app.tables import (
     CostRecordRow,
     DependencyRow,
@@ -23,6 +36,7 @@ from app.tables import (
     FindingRow,
     IncidentRow,
     MetricRollupRow,
+    PolicyRow,
     ProposalRow,
     ResourceRow,
     RiskAssessmentRow,
@@ -476,6 +490,46 @@ class FindingRepository:
             return None
         return _finding_from_row(row)
 
+    def list(self) -> list[Finding]:
+        rows = self.session.scalars(select(FindingRow).order_by(FindingRow.finding_id)).all()
+        return [_finding_from_row(row) for row in rows]
+
+
+class PolicyRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def list(self) -> list[Policy]:
+        rows = self.session.scalars(select(PolicyRow).order_by(PolicyRow.name)).all()
+        return [_policy_from_row(row) for row in rows]
+
+    def upsert(self, policy: Policy) -> bool:
+        row = self.session.get(PolicyRow, policy.name)
+        created = row is None
+        if row is None:
+            self.session.add(_policy_row(policy))
+        else:
+            row.effect = policy.effect.value
+            row.actions = list(policy.actions)
+            row.environment = _environment_value(policy)
+            row.resource_type = policy.resource_type
+        self.session.flush()
+        return created
+
+    def seed_defaults(self) -> Sequence[str]:
+        added: list[str] = []
+        for policy in default_policies():
+            if self.session.get(PolicyRow, policy.name) is None:
+                self.upsert(policy)
+                added.append(policy.name)
+        return added
+
+
+@dataclass(frozen=True)
+class ProposalPage:
+    items: Sequence[OptimizationProposal]
+    total: int
+
 
 class ProposalRepository:
     def __init__(self, session: Session) -> None:
@@ -502,17 +556,80 @@ class ProposalRepository:
         return _proposal_from_rows(row, risk)
 
     def list(self, approval_status: str | None = None) -> list[OptimizationProposal]:
+        items, _total = self._query(approval_status=approval_status)
+        return list(items)
+
+    def page(
+        self,
+        *,
+        approval_status: str | None = None,
+        risk_class: str | None = None,
+        environment: str | None = None,
+        team: str | None = None,
+        category: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> ProposalPage:
+        items, total = self._query(
+            approval_status=approval_status,
+            risk_class=risk_class,
+            environment=environment,
+            team=team,
+            category=category,
+            limit=limit,
+            offset=offset,
+        )
+        return ProposalPage(items=items, total=total)
+
+    def _query(
+        self,
+        *,
+        approval_status: str | None = None,
+        risk_class: str | None = None,
+        environment: str | None = None,
+        team: str | None = None,
+        category: str | None = None,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> tuple[Sequence[OptimizationProposal], int]:
         statement = select(ProposalRow, RiskAssessmentRow).join(
             RiskAssessmentRow,
             RiskAssessmentRow.proposal_id == ProposalRow.proposal_id,
         )
         if approval_status is not None:
             statement = statement.where(ProposalRow.approval_status == approval_status)
+        if risk_class is not None:
+            statement = statement.where(RiskAssessmentRow.risk_class == risk_class)
+        if category is not None:
+            statement = statement.where(ProposalRow.category == category)
+        if environment is not None:
+            statement = statement.where(_linked_resource(ResourceRow.environment == environment))
+        if team is not None:
+            statement = statement.where(_linked_resource(ResourceRow.team == team))
+        total = self.session.scalar(select(func.count()).select_from(statement.subquery())) or 0
         statement = statement.order_by(ProposalRow.proposal_id)
-        return [
-            _proposal_from_rows(proposal, risk)
-            for proposal, risk in self.session.execute(statement)
-        ]
+        if limit is not None:
+            statement = statement.limit(limit).offset(offset)
+        rows = self.session.execute(statement).all()
+        return [_proposal_from_rows(proposal, risk) for proposal, risk in rows], total
+
+    def find_with_action(
+        self, resource_ids: Sequence[str], action: str
+    ) -> OptimizationProposal | None:
+        for proposal in self.list():
+            if list(proposal.resource_ids) == list(resource_ids) and proposal.proposed_actions == [
+                action
+            ]:
+                return proposal
+        return None
+
+    def find_open(self, resource_ids: Sequence[str], action: str) -> OptimizationProposal | None:
+        for proposal in self.list(approval_status=ApprovalStatus.pending.value):
+            if list(proposal.resource_ids) == list(resource_ids) and proposal.proposed_actions == [
+                action
+            ]:
+                return proposal
+        return None
 
     def update_status(
         self,
@@ -525,6 +642,16 @@ class ProposalRepository:
         row = self.session.get(ProposalRow, proposal_id)
         if row is None:
             return None
+        blocked = _rejected_execution_blocked(
+            self.session, proposal_id, approval_status, execution_status
+        )
+        if blocked:
+            raise ValueError(f"rejected proposal {proposal_id} cannot be approved into execution")
+        prohibited = _prohibited_execution(
+            self.session, proposal_id, approval_status, execution_status
+        )
+        if prohibited is not None:
+            raise ValueError(f"policy {prohibited} prohibits {proposal_id}")
         if approval_status is not None:
             row.approval_status = approval_status.value
         if execution_status is not None:
@@ -533,6 +660,115 @@ class ProposalRepository:
             row.verification_status = verification_status.value
         self.session.flush()
         return self.get(proposal_id)
+
+    def set_narrative(self, proposal_id: str, narrative: str) -> OptimizationProposal | None:
+        row = self.session.get(ProposalRow, proposal_id)
+        if row is None:
+            return None
+        row.narrative = narrative
+        self.session.flush()
+        return self.get(proposal_id)
+
+
+def _linked_resource(criterion):
+    return exists(
+        select(ResourceRow.resource_id).where(
+            criterion,
+            ProposalRow.resource_ids.contains(func.jsonb_build_array(ResourceRow.resource_id)),
+        )
+    )
+
+
+def _rejected_execution_blocked(
+    session: Session,
+    proposal_id: str,
+    approval_status: ApprovalStatus | None,
+    execution_status: ExecutionStatus | None,
+) -> bool:
+    if not _starts_execution(approval_status, execution_status):
+        return False
+    risk = session.scalar(
+        select(RiskAssessmentRow).where(RiskAssessmentRow.proposal_id == proposal_id)
+    )
+    if risk is None or risk.risk_class != RiskClass.rejected.value:
+        return False
+    return not _override_allows_rejected(session)
+
+
+def _starts_execution(
+    approval_status: ApprovalStatus | None,
+    execution_status: ExecutionStatus | None,
+) -> bool:
+    if approval_status == ApprovalStatus.approved:
+        return True
+    return execution_status in {
+        ExecutionStatus.queued,
+        ExecutionStatus.running,
+        ExecutionStatus.succeeded,
+    }
+
+
+def _prohibited_execution(
+    session: Session,
+    proposal_id: str,
+    approval_status: ApprovalStatus | None,
+    execution_status: ExecutionStatus | None,
+) -> str | None:
+    if not _starts_execution(approval_status, execution_status):
+        return None
+    proposal = session.get(ProposalRow, proposal_id)
+    if proposal is None:
+        return None
+    policies = PolicyRepository(session).list()
+    for resource_id in proposal.resource_ids:
+        resource = session.get(ResourceRow, resource_id)
+        if resource is None:
+            continue
+        for action in proposal.proposed_actions:
+            decision = _decision(policies, action, resource)
+            if decision.effect == PolicyEffect.prohibit:
+                return decision.name
+    return None
+
+
+def _decision(policies: Sequence[Policy], action: str, resource: ResourceRow) -> Decision:
+    return evaluate(
+        policies,
+        action=action,
+        environment=resource.environment,
+        resource_type=resource.resource_type,
+    )
+
+
+def _policy_from_row(row: PolicyRow) -> Policy:
+    return Policy(
+        name=row.name,
+        effect=row.effect,
+        actions=list(row.actions),
+        environment=row.environment,
+        resource_type=row.resource_type,
+    )
+
+
+def _policy_row(policy: Policy) -> PolicyRow:
+    return PolicyRow(
+        name=policy.name,
+        effect=policy.effect.value,
+        actions=list(policy.actions),
+        environment=_environment_value(policy),
+        resource_type=policy.resource_type,
+    )
+
+
+def _environment_value(policy: Policy) -> str | None:
+    if policy.environment is None:
+        return None
+    return policy.environment.value
+
+
+def _override_allows_rejected(session: Session) -> bool:
+    rows = session.scalars(select(PolicyRow)).all()
+    return any(row.effect == "allow" and "approve_rejected" in row.actions for row in rows)
 
 
 _Item = TypeVar("_Item")
@@ -775,6 +1011,8 @@ def _proposal_row(proposal: OptimizationProposal) -> ProposalRow:
         preconditions=proposal.preconditions,
         proposed_actions=proposal.proposed_actions,
         rollback_plan=proposal.rollback_plan,
+        success_metrics=proposal.success_metrics,
+        narrative=proposal.narrative,
         approval_status=proposal.approval_status.value,
         execution_status=proposal.execution_status.value,
         verification_status=proposal.verification_status.value,
@@ -808,6 +1046,8 @@ def _proposal_from_rows(row: ProposalRow, risk: RiskAssessmentRow) -> Optimizati
         preconditions=row.preconditions,
         proposed_actions=row.proposed_actions,
         rollback_plan=row.rollback_plan,
+        success_metrics=row.success_metrics,
+        narrative=row.narrative,
         approval_status=row.approval_status,
         execution_status=row.execution_status,
         verification_status=row.verification_status,
