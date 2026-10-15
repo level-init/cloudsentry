@@ -169,6 +169,8 @@ class ProposalRow(Base):
 
 
 class ApprovalDecisionRow(Base):
+    """Append-only approval audit. Updates and deletes are refused."""
+
     __tablename__ = "approval_decisions"
 
     decision_id: Mapped[int] = mapped_column(primary_key=True)

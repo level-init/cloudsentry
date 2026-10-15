@@ -1,4 +1,4 @@
-"""List, filter, get, approve, reject, and queue optimization proposals.
+"""List, filter, get, approve, reject, queue, and audit optimization proposals.
 
 Until sign-in exists, the caller sends the actor in the X-Actor header.
 The API trusts that header. The body carries the reason.
@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.proposals import (
+    ApprovalDecision,
     ApprovalStatus,
     OptimizationProposal,
     ProposalList,
@@ -144,6 +145,26 @@ def execute_proposal(
     if updated is None:
         raise HTTPException(status_code=404, detail="proposal not found")
     return updated
+
+
+@router.get(
+    "/{proposal_id}/audit",
+    response_model=list[ApprovalDecision],
+    summary="List the approval audit",
+    description=(
+        "Approval changes for this proposal, oldest first. "
+        "Each approve or reject appends one row. "
+        "Rows cannot be updated or deleted."
+    ),
+)
+def list_audit(
+    proposal_id: str,
+    session: Session = Depends(get_session),
+) -> list[ApprovalDecision]:
+    repository = ProposalRepository(session)
+    if repository.get(proposal_id) is None:
+        raise HTTPException(status_code=404, detail="proposal not found")
+    return list(repository.decisions(proposal_id))
 
 
 def _decide(

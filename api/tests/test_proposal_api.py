@@ -46,6 +46,9 @@ def test_openapi_lists_proposal_routes() -> None:
     assert "X-Actor" in {item["name"] for item in reject["parameters"]}
     execute = schema["paths"]["/proposals/{proposal_id}/execute"]["post"]
     assert execute["tags"] == ["proposals"]
+    audit = schema["paths"]["/proposals/{proposal_id}/audit"]
+    assert set(audit) == {"get"}
+    assert audit["get"]["tags"] == ["proposals"]
     assert {
         "status",
         "risk_class",
@@ -210,6 +213,46 @@ def test_execute_waits_for_approval(session: Session) -> None:
     assert queued.json()["execution_status"] == "queued"
     assert again.status_code == 200
     assert again.json()["execution_status"] == "queued"
+
+
+def test_audit_lists_approve_and_reject_without_a_change_route(session: Session) -> None:
+    _seed(session)
+    client = _client(session)
+
+    empty = client.get("/proposals/opt-g9-prod/audit")
+    missing = client.get("/proposals/opt-g9-missing/audit")
+    client.post(
+        "/proposals/opt-g9-dev/approve",
+        headers={"X-Actor": "ada"},
+        json={"reason": "the idle instance can stop"},
+    )
+    client.post(
+        "/proposals/opt-g9-other/reject",
+        headers={"X-Actor": "ada"},
+        json={"reason": "keep the schedule"},
+    )
+    approved = client.get("/proposals/opt-g9-dev/audit")
+    rejected = client.get("/proposals/opt-g9-other/audit")
+    updated = client.put(
+        "/proposals/opt-g9-dev/audit",
+        json={"reason": "tampered"},
+    )
+    deleted = client.delete("/proposals/opt-g9-dev/audit")
+
+    assert empty.status_code == 200
+    assert empty.json() == []
+    assert missing.status_code == 404
+    assert approved.status_code == 200
+    assert len(approved.json()) == 1
+    assert approved.json()[0]["actor"] == "ada"
+    assert approved.json()[0]["reason"] == "the idle instance can stop"
+    assert approved.json()[0]["from_status"] == "pending"
+    assert approved.json()[0]["to_status"] == "approved"
+    assert rejected.status_code == 200
+    assert rejected.json()[0]["reason"] == "keep the schedule"
+    assert rejected.json()[0]["to_status"] == "rejected"
+    assert updated.status_code == 405
+    assert deleted.status_code == 405
 
 
 def _client(session: Session) -> TestClient:
