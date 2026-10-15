@@ -177,6 +177,8 @@ def test_update_proposal_status(session: Session) -> None:
         "opt-1",
         approval_status=ApprovalStatus.approved,
         execution_status=ExecutionStatus.queued,
+        actor="ada",
+        reason="idle dev instance",
     )
 
     assert updated is not None
@@ -218,6 +220,8 @@ def test_rejected_proposal_stays_out_of_execution_unless_a_policy_allows_it(
         "opt-rejected",
         approval_status=ApprovalStatus.approved,
         execution_status=ExecutionStatus.queued,
+        actor="ada",
+        reason="policy allows this rejected proposal",
     )
 
     assert updated is not None
@@ -265,7 +269,12 @@ def test_prohibit_delete_production_database_blocks_execution(session: Session) 
         repository.update_status("opt-delete-db", approval_status=ApprovalStatus.approved)
     with pytest.raises(ValueError, match="prohibits"):
         repository.update_status("opt-delete-db", execution_status=ExecutionStatus.queued)
-    cancelled = repository.update_status("opt-delete-db", approval_status=ApprovalStatus.cancelled)
+    cancelled = repository.update_status(
+        "opt-delete-db",
+        approval_status=ApprovalStatus.cancelled,
+        actor="ada",
+        reason="leave the prohibited delete unapproved",
+    )
 
     assert cancelled is not None
     assert cancelled.approval_status == "cancelled"
@@ -295,8 +304,84 @@ def test_development_schedule_stays_approvable(session: Session) -> None:
         )
     )
 
-    updated = repository.update_status("opt-schedule", approval_status=ApprovalStatus.approved)
+    updated = repository.update_status(
+        "opt-schedule",
+        approval_status=ApprovalStatus.approved,
+        actor="ada",
+        reason="development schedule is allowed",
+    )
 
     assert updated is not None
     assert updated.approval_status == "approved"
     assert updated.execution_status == "not_started"
+
+
+def test_unapproved_execution_is_refused_including_bypass_attempts(session: Session) -> None:
+    ResourceRepository(session).create(_resource("i-h3-dev", "development", "compute"))
+    ResourceRepository(session).create(_resource("db-h3-prd", "production", "database"))
+    session.add(
+        FindingRow(
+            finding_id="find-h3",
+            resource_ids=["i-h3-dev"],
+            category="idle_compute",
+            summary="idle development instance",
+            evidence=["low cpu"],
+        )
+    )
+    session.add(
+        FindingRow(
+            finding_id="find-h3-db",
+            resource_ids=["db-h3-prd"],
+            category="unattached_storage",
+            summary="delete a production database",
+            evidence=["unused"],
+        )
+    )
+    session.flush()
+    PolicyRepository(session).seed_defaults()
+    repository = ProposalRepository(session)
+    repository.create(
+        _proposal(
+            "opt-h3",
+            "find-h3",
+            resource_ids=["i-h3-dev"],
+            proposed_actions=["stop i-h3-dev"],
+        )
+    )
+    repository.create(
+        _proposal(
+            "opt-h3-db",
+            "find-h3-db",
+            approval_status="approved",
+            resource_ids=["db-h3-prd"],
+            proposed_actions=["delete db-h3-prd"],
+            category="unattached_storage",
+        )
+    )
+
+    for status in (
+        ExecutionStatus.queued,
+        ExecutionStatus.running,
+        ExecutionStatus.succeeded,
+    ):
+        with pytest.raises(ValueError, match="must be approved"):
+            repository.update_status("opt-h3", execution_status=status)
+    with pytest.raises(ValueError, match="must be approved"):
+        repository.begin_execution("opt-h3")
+    cancelled = repository.update_status(
+        "opt-h3",
+        approval_status=ApprovalStatus.cancelled,
+        actor="ada",
+        reason="do not run this yet",
+    )
+    with pytest.raises(ValueError, match="must be approved"):
+        repository.begin_execution("opt-h3")
+    with pytest.raises(ValueError, match="prohibits"):
+        repository.begin_execution("opt-h3-db")
+    with pytest.raises(ValueError, match="prohibits"):
+        repository.update_status("opt-h3-db", execution_status=ExecutionStatus.queued)
+
+    assert cancelled is not None
+    assert cancelled.execution_status == "not_started"
+    assert repository.get("opt-h3-db").execution_status == "not_started"
+    assert repository.begin_execution("missing") is None
