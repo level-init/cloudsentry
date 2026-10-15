@@ -1,13 +1,16 @@
 """Optimization proposal schemas.
 
 A detector emits a Finding. Planning turns that into an OptimizationProposal
-with a RiskAssessment. Approval, execution, and verification statuses are
-placeholders until those workflows exist. Execution runs live in app.execution.
+with a RiskAssessment. Every proposal carries preconditions, execution steps,
+a rollback, and success metrics. Blank or empty plan lists are rejected.
+Approval, execution, and verification statuses are placeholders until those
+workflows exist. Execution runs live in app.execution.
 """
 
 from enum import StrEnum
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator, model_validator
 
 from app.schemas import BusinessCriticality
 
@@ -76,11 +79,53 @@ class OptimizationProposal(BaseModel):
     business_criticality: BusinessCriticality
     evidence: list[str] = Field(default_factory=list)
     dependencies: list[str] = Field(default_factory=list)
-    preconditions: list[str] = Field(default_factory=list)
+    preconditions: list[str] = Field(min_length=1)
     proposed_actions: list[str] = Field(min_length=1)
     rollback_plan: list[str] = Field(min_length=1)
+    success_metrics: list[str] = Field(min_length=1)
     approval_status: ApprovalStatus = ApprovalStatus.pending
     execution_status: ExecutionStatus = ExecutionStatus.not_started
     verification_status: VerificationStatus = VerificationStatus.not_started
     realized_savings: float | None = None
     risk_assessment: RiskAssessment
+
+    @model_validator(mode="before")
+    @classmethod
+    def _accept_plan_names(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        data = dict(data)
+        _copy_alias(data, "execution_steps", "proposed_actions")
+        _copy_alias(data, "rollback", "rollback_plan")
+        return data
+
+    @field_validator(
+        "preconditions",
+        "proposed_actions",
+        "rollback_plan",
+        "success_metrics",
+    )
+    @classmethod
+    def _reject_blank_plan_lines(cls, lines: list[str]) -> list[str]:
+        if any(not line.strip() for line in lines):
+            raise ValueError("plan lines must be non-blank")
+        return lines
+
+    @computed_field
+    @property
+    def execution_steps(self) -> list[str]:
+        return self.proposed_actions
+
+    @computed_field
+    @property
+    def rollback(self) -> list[str]:
+        return self.rollback_plan
+
+
+def _copy_alias(data: dict[str, Any], alias: str, field: str) -> None:
+    if alias not in data:
+        return
+    if field in data and data[field] != data[alias]:
+        raise ValueError(f"{alias} and {field} must match")
+    data.setdefault(field, data.pop(alias))
+    data.pop(alias, None)

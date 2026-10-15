@@ -65,10 +65,12 @@ def _proposal(
         confidence=0.94,
         business_criticality="low",
         evidence=["average CPU 3.7 percent"],
+        preconditions=["compute is present"],
         proposed_actions=["stop outside business hours"]
         if proposed_actions is None
         else proposed_actions,
         rollback_plan=["start the instance"],
+        success_metrics=["monthly cost at or below 0.00"],
         approval_status=approval_status,
         risk_assessment=RiskAssessment(
             risk_score=0.12,

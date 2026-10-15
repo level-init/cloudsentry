@@ -33,6 +33,7 @@ _PRODUCT_FIELDS = {
     "preconditions",
     "proposed_actions",
     "rollback_plan",
+    "success_metrics",
     "approval_status",
     "execution_status",
     "verification_status",
@@ -112,7 +113,10 @@ def _assert_idle(proposal: OptimizationProposal) -> None:
         "cpu and request averages and peaks stay under the idle caps",
     ]
     assert payload["proposed_actions"] == ["stop i-prop-idle"]
+    assert payload["execution_steps"] == ["stop i-prop-idle"]
     assert payload["rollback_plan"] == ["start i-prop-idle"]
+    assert payload["rollback"] == ["start i-prop-idle"]
+    assert payload["success_metrics"] == ["monthly cost at or below 0.00"]
     assert "success_metric monthly cost at or below 0.00" in payload["evidence"]
     assert payload["approval_status"] == "pending"
     assert payload["execution_status"] == "not_started"
