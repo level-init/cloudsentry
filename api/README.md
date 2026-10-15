@@ -34,6 +34,8 @@ curl -s localhost:8000/proposals/proposal-idle_compute-i-dev-062
 
 `status` is the approval status. `environment` and `team` come from a linked resource. `category` is the proposal category. `limit` defaults to 50, with a maximum of 100. `offset` defaults to 0. `total` counts every match, not just the page. An unknown id returns 404. An unknown status or risk class returns 422.
 
+A pending proposal can be approved, rejected, or cancelled. Any other approval change is refused, including approving a proposal that is already approved. Each change stores the actor, the time, and the reason. A `REJECTED` risk class still cannot be approved unless an allow policy lists `approve_rejected`.
+
 ```bash
 curl -s 'localhost:8000/resources?account_id=111111111111&environment=development&resource_type=compute'
 curl -s 'localhost:8000/resources/i-dev-062?year=2026&month=3'

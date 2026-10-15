@@ -88,7 +88,12 @@ def test_each_mvp_finding_becomes_a_proposal_and_a_second_run_skips_it(
     assert finding_ids - {"sample-i-prop-sample"} <= {item.finding_id for item in second.skipped}
 
     idle_id = "proposal-idle_compute-i-prop-idle"
-    ProposalRepository(session).update_status(idle_id, approval_status=ApprovalStatus.rejected)
+    ProposalRepository(session).update_status(
+        idle_id,
+        approval_status=ApprovalStatus.rejected,
+        actor="tester",
+        reason="reject the idle proposal so a new one can be created",
+    )
     third = propose(session)
     reopened = [item for item in third.created if item.finding_id == "idle_compute-i-prop-idle"]
     assert [item.proposal_id for item in reopened] == [f"{idle_id}-2"]

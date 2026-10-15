@@ -3,10 +3,12 @@
 A detector emits a Finding. Planning turns that into an OptimizationProposal
 with a RiskAssessment. Every proposal carries preconditions, execution steps,
 a rollback, and success metrics. Blank or empty plan lists are rejected.
-Approval, execution, and verification statuses are placeholders until those
-workflows exist. Execution runs live in app.execution.
+Approval can move from pending to approved, rejected, or cancelled.
+Execution and verification statuses are placeholders until those workflows
+exist. Execution runs live in app.execution.
 """
 
+from datetime import datetime
 from enum import StrEnum
 from typing import Any
 
@@ -128,6 +130,17 @@ class OptimizationProposal(BaseModel):
     @property
     def rollback(self) -> list[str]:
         return self.rollback_plan
+
+
+class ApprovalDecision(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    proposal_id: str = Field(min_length=1)
+    actor: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    decided_at: datetime
+    from_status: ApprovalStatus
+    to_status: ApprovalStatus
 
 
 class ProposalList(BaseModel):
