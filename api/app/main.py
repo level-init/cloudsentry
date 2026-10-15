@@ -4,6 +4,7 @@ from pydantic import BaseModel
 
 from app.config import get_settings
 from app.dependency_api import router as dependency_router
+from app.notification_api import router as notification_router
 from app.proposal_api import router as proposal_router
 from app.resource_api import router as resource_router
 from app.spend_api import router as spend_router
@@ -17,6 +18,10 @@ OPENAPI_TAGS = [
     {
         "name": "proposals",
         "description": "Optimization proposals, risk, approval, execution, and verification.",
+    },
+    {
+        "name": "notifications",
+        "description": "In-app notices for proposals waiting on approval.",
     },
 ]
 
@@ -40,6 +45,7 @@ def create_app() -> FastAPI:
     app.include_router(dependency_router)
     app.include_router(spend_router)
     app.include_router(proposal_router)
+    app.include_router(notification_router)
 
     @app.get(
         "/health",
