@@ -168,6 +168,20 @@ class ProposalRow(Base):
     realized_savings: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
+class ApprovalDecisionRow(Base):
+    __tablename__ = "approval_decisions"
+
+    decision_id: Mapped[int] = mapped_column(primary_key=True)
+    proposal_id: Mapped[str] = mapped_column(
+        ForeignKey("optimization_proposals.proposal_id"), nullable=False
+    )
+    actor: Mapped[str] = mapped_column(String, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    decided_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    from_status: Mapped[str] = mapped_column(String, nullable=False)
+    to_status: Mapped[str] = mapped_column(String, nullable=False)
+
+
 class RiskAssessmentRow(Base):
     __tablename__ = "risk_assessments"
 

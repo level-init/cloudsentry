@@ -9,8 +9,10 @@ from sqlalchemy import exists, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from app.approval import require_transition
 from app.policy import Decision, default_policies, evaluate
 from app.proposals import (
+    ApprovalDecision,
     ApprovalStatus,
     ExecutionStatus,
     Finding,
@@ -30,6 +32,7 @@ from app.schemas import (
     Resource,
 )
 from app.tables import (
+    ApprovalDecisionRow,
     CostRecordRow,
     DependencyRow,
     DetectionRunRow,
@@ -638,10 +641,16 @@ class ProposalRepository:
         approval_status: ApprovalStatus | None = None,
         execution_status: ExecutionStatus | None = None,
         verification_status: VerificationStatus | None = None,
+        actor: str | None = None,
+        reason: str | None = None,
+        decided_at: datetime | None = None,
     ) -> OptimizationProposal | None:
         row = self.session.get(ProposalRow, proposal_id)
         if row is None:
             return None
+        current = ApprovalStatus(row.approval_status)
+        if approval_status is not None:
+            require_transition(current, approval_status)
         blocked = _rejected_execution_blocked(
             self.session, proposal_id, approval_status, execution_status
         )
@@ -653,6 +662,18 @@ class ProposalRepository:
         if prohibited is not None:
             raise ValueError(f"policy {prohibited} prohibits {proposal_id}")
         if approval_status is not None:
+            actor_name, decision_reason = _require_decision(actor, reason)
+            when = datetime.now(timezone.utc) if decided_at is None else decided_at
+            self.session.add(
+                ApprovalDecisionRow(
+                    proposal_id=proposal_id,
+                    actor=actor_name,
+                    reason=decision_reason,
+                    decided_at=when,
+                    from_status=current.value,
+                    to_status=approval_status.value,
+                )
+            )
             row.approval_status = approval_status.value
         if execution_status is not None:
             row.execution_status = execution_status.value
@@ -661,6 +682,14 @@ class ProposalRepository:
         self.session.flush()
         return self.get(proposal_id)
 
+    def decisions(self, proposal_id: str) -> Sequence[ApprovalDecision]:
+        rows = self.session.scalars(
+            select(ApprovalDecisionRow)
+            .where(ApprovalDecisionRow.proposal_id == proposal_id)
+            .order_by(ApprovalDecisionRow.decision_id)
+        ).all()
+        return [_decision_from_row(row) for row in rows]
+
     def set_narrative(self, proposal_id: str, narrative: str) -> OptimizationProposal | None:
         row = self.session.get(ProposalRow, proposal_id)
         if row is None:
@@ -668,6 +697,23 @@ class ProposalRepository:
         row.narrative = narrative
         self.session.flush()
         return self.get(proposal_id)
+
+
+def _require_decision(actor: str | None, reason: str | None) -> tuple[str, str]:
+    if actor is None or not actor.strip() or reason is None or not reason.strip():
+        raise ValueError("approval changes require an actor and a reason")
+    return actor.strip(), reason.strip()
+
+
+def _decision_from_row(row: ApprovalDecisionRow) -> ApprovalDecision:
+    return ApprovalDecision(
+        proposal_id=row.proposal_id,
+        actor=row.actor,
+        reason=row.reason,
+        decided_at=row.decided_at,
+        from_status=row.from_status,
+        to_status=row.to_status,
+    )
 
 
 def _linked_resource(criterion):
