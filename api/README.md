@@ -51,6 +51,12 @@ curl -s -X POST localhost:8000/proposals/proposal-idle_compute-i-dev-062/reject 
 
 Approve sets `approval_status` to `approved`. Reject sets it to `rejected` and stores the reason. A missing proposal returns 404. A missing `X-Actor` header or a blank reason returns 422. An illegal change, including a second approve, returns 409.
 
+`POST /proposals/{id}/execute` queues an approved proposal. It does not change the simulator. A pending, rejected, or cancelled proposal returns 409, including a proposal labeled `SAFE_AUTOMATION`. An allow policy does not skip approval. A prohibit policy returns 409 even when the stored status is already approved. Queueing, running, or marking success through the status update is refused until the proposal is approved.
+
+```bash
+curl -s -X POST localhost:8000/proposals/proposal-idle_compute-i-dev-062/execute
+```
+
 ```bash
 curl -s 'localhost:8000/resources?account_id=111111111111&environment=development&resource_type=compute'
 curl -s 'localhost:8000/resources/i-dev-062?year=2026&month=3'
