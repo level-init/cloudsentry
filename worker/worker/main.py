@@ -4,6 +4,7 @@ import sys
 from worker.billing_ingest import ingest_billing
 from worker.config import get_settings
 from worker.detectors import DetectResult, detect
+from worker.explain import save_explanations
 from worker.inventory import ingest_inventory
 from worker.knowledge_ingest import ingest_knowledge
 from worker.metric_ingest import ingest_metrics
@@ -81,6 +82,10 @@ def main() -> None:
                 proposal.category,
                 proposal.proposed_actions[0],
             )
+        return
+    if sys.argv[1:] == ["explain"]:
+        for proposal in save_explanations():
+            logging.info("narrative %s", proposal.proposal_id)
         return
     raise SystemExit(f"unknown command {sys.argv[1]}")
 

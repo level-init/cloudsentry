@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -13,6 +15,10 @@ class Settings(BaseSettings):
     lifecycle_cost_cents: int = Field(default=5000, ge=0)
     lifecycle_retention_days: int = Field(default=90, ge=0)
     detection_interval_seconds: int = Field(default=3600, gt=0)
+    explainer: Literal["stub", "llm"] = "stub"
+    explainer_base_url: str = "https://api.openai.com/v1"
+    explainer_api_key: str = ""
+    explainer_model: str = "gpt-4o-mini"
 
 
 def get_settings() -> Settings:

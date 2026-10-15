@@ -84,6 +84,7 @@ make run-worker
 | `make detect` | runs registered detectors once and writes findings |
 | `make detect-schedule` | runs the same batch as one cron tick and records the run |
 | `make propose` | turns stored findings into pending optimization proposals |
+| `make explain` | writes a narrative for each stored proposal |
 
 `make seed-simulator` rebuilds the in-memory company: 3 accounts and 180 resources.
 
