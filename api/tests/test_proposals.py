@@ -1,9 +1,12 @@
 import json
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from app.proposals import Finding, OptimizationProposal, RiskAssessment
+
+_FIXTURE = Path(__file__).parent / "fixtures" / "sample_proposal.json"
 
 
 def test_finding_rejects_blank_summary() -> None:
@@ -22,29 +25,10 @@ def test_risk_assessment_rejects_score_above_one() -> None:
 
 
 def test_pending_proposal_serializes_to_product_shape() -> None:
-    proposal = OptimizationProposal(
-        proposal_id="opt-1042",
-        finding_id="find-1",
-        resource_ids=["i-0a123"],
-        category="idle_compute",
-        current_monthly_cost=182.4,
-        predicted_monthly_cost=0,
-        predicted_monthly_savings=182.4,
-        confidence=0.94,
-        business_criticality="low",
-        evidence=["average CPU 3.7 percent over 30 days"],
-        dependencies=["internal-test-api"],
-        preconditions=["latest backup succeeded"],
-        proposed_actions=["stop the instance outside business hours"],
-        rollback_plan=["start the instance and remove the schedule"],
-        risk_assessment=RiskAssessment(
-            risk_score=0.12,
-            risk_class="APPROVAL_REQUIRED",
-            reasons=["development environment with no production dependencies"],
-        ),
-    )
+    proposal = OptimizationProposal.model_validate_json(_FIXTURE.read_text())
 
     payload = json.loads(proposal.model_dump_json())
+    again = OptimizationProposal.model_validate(payload)
 
     assert payload["proposal_id"] == "opt-1042"
     assert payload["resource_ids"] == ["i-0a123"]
@@ -57,4 +41,29 @@ def test_pending_proposal_serializes_to_product_shape() -> None:
     assert payload["realized_savings"] is None
     assert payload["risk_assessment"]["risk_class"] == "APPROVAL_REQUIRED"
     assert payload["evidence"] == ["average CPU 3.7 percent over 30 days"]
-    assert payload["rollback_plan"] == ["start the instance and remove the schedule"]
+    assert payload["preconditions"] == ["latest backup succeeded"]
+    assert payload["execution_steps"] == ["stop the instance outside business hours"]
+    assert payload["proposed_actions"] == payload["execution_steps"]
+    assert payload["rollback"] == ["start the instance and remove the schedule"]
+    assert payload["rollback_plan"] == payload["rollback"]
+    assert payload["success_metrics"] == ["monthly cost at or below 0.00"]
+    assert again.success_metrics == proposal.success_metrics
+
+
+def test_incomplete_plan_is_rejected() -> None:
+    complete = json.loads(_FIXTURE.read_text())
+
+    for field in ("preconditions", "execution_steps", "rollback", "success_metrics"):
+        missing = dict(complete)
+        missing.pop(field)
+        with pytest.raises(ValidationError):
+            OptimizationProposal.model_validate(missing)
+
+    empty = dict(complete)
+    empty["preconditions"] = []
+    blank = dict(complete)
+    blank["success_metrics"] = [" "]
+    with pytest.raises(ValidationError):
+        OptimizationProposal.model_validate(empty)
+    with pytest.raises(ValidationError):
+        OptimizationProposal.model_validate(blank)

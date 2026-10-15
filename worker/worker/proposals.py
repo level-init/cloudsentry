@@ -2,8 +2,8 @@
 
 Each MVP category has a fixed action and rollback. Costs stay in cents until
 the proposal stores dollars. The compute rates and the 40/168 weekday schedule
-match simulator/simulator/billing.py. Success metrics are evidence lines
-because the proposal object has no separate field for them.
+match simulator/simulator/billing.py. Success metrics are stored on the
+proposal and copied into evidence.
 
 A second build skips a pending proposal with the same
 resource ids and the same action. A rejected proposal does not block a new one.
@@ -127,6 +127,7 @@ def _proposal(session: Session, finding, resource: Resource, plan: _Plan) -> Opt
         preconditions=plan.preconditions,
         proposed_actions=[plan.action],
         rollback_plan=[plan.rollback],
+        success_metrics=[plan.success_metric],
         approval_status=approval,
         risk_assessment=risk,
     )

@@ -160,6 +160,7 @@ class ProposalRow(Base):
     preconditions: Mapped[list] = mapped_column(JSONB, nullable=False)
     proposed_actions: Mapped[list] = mapped_column(JSONB, nullable=False)
     rollback_plan: Mapped[list] = mapped_column(JSONB, nullable=False)
+    success_metrics: Mapped[list] = mapped_column(JSONB, nullable=False)
     approval_status: Mapped[str] = mapped_column(String, nullable=False)
     execution_status: Mapped[str] = mapped_column(String, nullable=False)
     verification_status: Mapped[str] = mapped_column(String, nullable=False)

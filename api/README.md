@@ -58,7 +58,7 @@ On a fresh March 2026 ingest those totals are development `111111111111` 428264 
 
 `app/policy.py` loads `app/default_policies.yaml`. The strictest matching rule wins. When nothing matches, the decision is `require_approval`. `PolicyRepository.seed_defaults()` inserts any missing default. Migration `0009` does that on upgrade. Deleting a production database is prohibited, so that proposal cannot be approved or queued. Scheduling development compute requires approval and can still be approved. Allowing a development stop is reserved for later guarded automation. v1 does not execute it.
 
-`app/proposals.py` defines `Finding`, `RiskAssessment`, and `OptimizationProposal`. A proposal includes cost, savings, confidence, evidence, actions, a rollback plan, and approval, execution, and verification statuses. `model_dump_json()` produces an API response.
+`app/proposals.py` defines `Finding`, `RiskAssessment`, and `OptimizationProposal`. A proposal includes cost, savings, confidence, evidence, and approval, execution, and verification statuses. The plan is always populated: `preconditions`, `execution_steps`, `rollback`, and `success_metrics`. Each list must contain at least one non-blank line. `execution_steps` is stored as `proposed_actions`, and `rollback` is stored as `rollback_plan`. `api/tests/fixtures/sample_proposal.json` is a complete example. `model_dump_json()` produces an API response.
 
 `app/execution.py` defines `ExecutionRun`, `VerificationResult`, and `RealizedSavings`. Each record carries `proposal_id`. A run stores the actor, plan snapshot, timestamps, and rollback metadata. A verification result records predicted savings, realized savings, operational impact, and a status of `success`, `partial`, `rollback`, or `inconclusive`.
 
