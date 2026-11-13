@@ -17,7 +17,7 @@ Most cost tools stop at recommendations. CloudSentry owns the harder questions: 
 | Decision | Choice |
 | --- | --- |
 | Goal | Real product that also works as a portfolio demo |
-| Autonomy | **Approval-required** — humans must approve before execution |
+| Autonomy | **Approval-required** — developers must approve before execution |
 | Cloud approach | AWS-like **simulator first**, real AWS adapters later |
 | Backend | Python + FastAPI |
 | Frontend | Next.js / React |
