@@ -46,9 +46,12 @@ def test_openapi_lists_proposal_routes() -> None:
     assert "X-Actor" in {item["name"] for item in reject["parameters"]}
     execute = schema["paths"]["/proposals/{proposal_id}/execute"]["post"]
     assert execute["tags"] == ["proposals"]
+    assert "X-Actor" in {item["name"] for item in execute["parameters"]}
     audit = schema["paths"]["/proposals/{proposal_id}/audit"]
     assert set(audit) == {"get"}
     assert audit["get"]["tags"] == ["proposals"]
+    assert "/executions/{execution_id}" in schema["paths"]
+    assert schema["paths"]["/executions/{execution_id}"]["get"]["tags"] == ["executions"]
     assert {
         "status",
         "risk_class",
@@ -191,16 +194,19 @@ def test_execute_waits_for_approval(session: Session) -> None:
     _seed(session)
     client = _client(session)
 
-    pending = client.post("/proposals/opt-g9-dev/execute")
-    missing = client.post("/proposals/opt-g9-missing/execute")
+    pending = client.post("/proposals/opt-g9-dev/execute", headers={"X-Actor": "ada"})
+    missing = client.post("/proposals/opt-g9-missing/execute", headers={"X-Actor": "ada"})
     still_pending = client.get("/proposals/opt-g9-dev")
     approved = client.post(
         "/proposals/opt-g9-dev/approve",
         headers={"X-Actor": "ada"},
         json={"reason": "the idle instance can stop"},
     )
-    queued = client.post("/proposals/opt-g9-dev/execute")
-    again = client.post("/proposals/opt-g9-dev/execute")
+    no_actor = client.post("/proposals/opt-g9-dev/execute")
+    queued = client.post("/proposals/opt-g9-dev/execute", headers={"X-Actor": "ada"})
+    again = client.post("/proposals/opt-g9-dev/execute", headers={"X-Actor": "ada"})
+    run = client.get("/executions/execution-opt-g9-dev")
+    missing_run = client.get("/executions/execution-missing")
 
     assert pending.status_code == 409
     assert "must be approved" in pending.json()["detail"]
@@ -208,11 +214,21 @@ def test_execute_waits_for_approval(session: Session) -> None:
     assert still_pending.json()["execution_status"] == "not_started"
     assert missing.status_code == 404
     assert approved.status_code == 200
+    assert no_actor.status_code == 422
     assert queued.status_code == 200
     assert queued.json()["approval_status"] == "approved"
     assert queued.json()["execution_status"] == "queued"
     assert again.status_code == 200
     assert again.json()["execution_status"] == "queued"
+    assert run.status_code == 200
+    assert run.json()["execution_id"] == "execution-opt-g9-dev"
+    assert run.json()["proposal_id"] == "opt-g9-dev"
+    assert run.json()["status"] == "queued"
+    assert run.json()["actor"] == "ada"
+    assert run.json()["plan_snapshot"] == ["stop i-g9-dev"]
+    assert run.json()["rollback_plan"] == ["start i-g9-dev"]
+    assert run.json()["finished_at"] is None
+    assert missing_run.status_code == 404
 
 
 def test_audit_lists_approve_and_reject_without_a_change_route(session: Session) -> None:
