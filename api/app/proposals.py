@@ -4,8 +4,8 @@ A detector emits a Finding. Planning turns that into an OptimizationProposal
 with a RiskAssessment. Every proposal carries preconditions, execution steps,
 a rollback, and success metrics. Blank or empty plan lists are rejected.
 Approval can move from pending to approved, rejected, or cancelled.
-Execution and verification statuses are placeholders until those workflows
-exist. Execution runs live in app.execution.
+Queuing an approved proposal creates an ExecutionRun. Execution and
+verification workflows live in app.execution.
 """
 
 from datetime import datetime

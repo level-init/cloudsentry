@@ -25,7 +25,7 @@ Stop the server with Ctrl+C. `DATABASE_URL` is optional for this skeleton. The d
 
 With the API running, open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs). The schema is at [http://127.0.0.1:8000/openapi.json](http://127.0.0.1:8000/openapi.json).
 
-`/docs` lists `GET /health` under **system**. **Inventory** includes resource list and get, dependency lookup, and `GET /spend/accounts` plus `GET /spend/environments`. **Proposals** lists and gets optimization proposals, approves or rejects a pending one, and lists the approval audit. **Notifications** lists in-app notices for an owner or a team.
+`/docs` lists `GET /health` under **system**. **Inventory** includes resource list and get, dependency lookup, and `GET /spend/accounts` plus `GET /spend/environments`. **Proposals** lists and gets optimization proposals, approves or rejects a pending one, and lists the approval audit. **Executions** gets an execution run by id. **Notifications** lists in-app notices for an owner or a team.
 
 ```bash
 curl -s 'localhost:8000/proposals?status=pending&risk_class=SAFE_AUTOMATION&environment=development&team=payments&category=idle_compute&limit=20&offset=0'
@@ -63,10 +63,14 @@ Creating a pending proposal writes a notification for the owner and team on the 
 curl -s 'localhost:8000/notifications?owner=payments&team=payments'
 ```
 
-`POST /proposals/{id}/execute` queues an approved proposal. It does not change the simulator. A pending, rejected, or cancelled proposal returns 409, including a proposal labeled `SAFE_AUTOMATION`. An allow policy does not skip approval. A prohibit policy returns 409 even when the stored status is already approved. Queueing, running, or marking success through the status update is refused until the proposal is approved.
+`POST /proposals/{id}/execute` queues an approved proposal and creates an `ExecutionRun` with a snapshot of the plan and rollback. Send the actor in the `X-Actor` header. It does not change the simulator. A pending, rejected, or cancelled proposal returns 409, including a proposal labeled `SAFE_AUTOMATION`. An allow policy does not skip approval. A prohibit policy returns 409 even when the stored status is already approved. Queueing, running, or marking success through the status update is refused until the proposal is approved. A second execute on the same proposal reuses the same run.
+
+A run moves `queued` → `running` → `succeeded` | `failed` | `rolled_back`. A queued run may also fail. A succeeded run may still roll back. Terminal states set `finished_at`. `GET /executions/{id}` returns the run. The id is `execution-{proposal_id}`.
 
 ```bash
-curl -s -X POST localhost:8000/proposals/proposal-idle_compute-i-dev-062/execute
+curl -s -X POST localhost:8000/proposals/proposal-idle_compute-i-dev-062/execute \
+  -H 'X-Actor: ada'
+curl -s localhost:8000/executions/execution-proposal-idle_compute-i-dev-062
 ```
 
 ```bash
@@ -102,7 +106,7 @@ On a fresh March 2026 ingest those totals are development `111111111111` 428264 
 
 `app/proposals.py` defines `Finding`, `RiskAssessment`, and `OptimizationProposal`. A proposal includes cost, savings, confidence, evidence, and approval, execution, and verification statuses. The plan is always populated: `preconditions`, `execution_steps`, `rollback`, and `success_metrics`. Each list must contain at least one non-blank line. `execution_steps` is stored as `proposed_actions`, and `rollback` is stored as `rollback_plan`. `api/tests/fixtures/sample_proposal.json` is a complete example. `narrative` is optional text. The worker writes it and rejects a narrative whose savings or risk numbers differ from the structured fields. `model_dump_json()` produces an API response.
 
-`app/execution.py` defines `ExecutionRun`, `VerificationResult`, and `RealizedSavings`. Each record carries `proposal_id`. A run stores the actor, plan snapshot, timestamps, and rollback metadata. A verification result records predicted savings, realized savings, operational impact, and a status of `success`, `partial`, `rollback`, or `inconclusive`.
+`app/execution.py` defines `ExecutionRun`, `VerificationResult`, and `RealizedSavings`. Each record carries `proposal_id`. A run stores the actor, plan snapshot, timestamps, and rollback metadata. Queuing an approved proposal creates the run and keeps the proposal `execution_status` in sync as the run moves. A verification result records predicted savings, realized savings, operational impact, and a status of `success`, `partial`, `rollback`, or `inconclusive`.
 
 ## Migrations
 

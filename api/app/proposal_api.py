@@ -128,7 +128,9 @@ def reject_proposal(
     response_model=OptimizationProposal,
     summary="Queue an approved proposal",
     description=(
-        "Accepts an approved proposal into the execution queue. "
+        "Accepts an approved proposal into the execution queue and creates an "
+        "ExecutionRun with a snapshot of the plan. "
+        "Send the actor in the X-Actor header. "
         "A pending, rejected, or cancelled proposal is refused, including "
         "SAFE_AUTOMATION. A prohibit policy is refused. "
         "This does not change the simulator."
@@ -136,10 +138,14 @@ def reject_proposal(
 )
 def execute_proposal(
     proposal_id: str,
+    x_actor: Annotated[str, Header(alias="X-Actor")],
     session: Session = Depends(get_session),
 ) -> OptimizationProposal:
+    name = x_actor.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="X-Actor is required")
     try:
-        updated = ProposalRepository(session).begin_execution(proposal_id)
+        updated = ProposalRepository(session).begin_execution(proposal_id, actor=name)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if updated is None:
