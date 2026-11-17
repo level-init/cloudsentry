@@ -136,26 +136,44 @@ class SimulatorApplyAdapter:
         )
 
 
-def apply_plan_action(adapter: CloudApplyAdapter, action: str) -> MutationResult:
-    """Map one proposal plan line onto an adapter method."""
+def parse_plan_action(action: str) -> tuple[str, tuple[str, ...]]:
+    """Parse one plan line into a verb and argument tuple. Does not mutate."""
     line = action.strip()
     if not line:
         raise ApplyError("plan action is blank")
     parts = line.split()
     verb = parts[0]
     if verb == "stop" and len(parts) == 2:
-        return adapter.stop(parts[1])
+        return verb, (parts[1],)
     if verb == "start" and len(parts) == 2:
-        return adapter.start(parts[1])
+        return verb, (parts[1],)
     if verb == "resize" and len(parts) == 4 and parts[2] == "to":
-        return adapter.resize(parts[1], parts[3])
+        return verb, (parts[1], parts[3])
     if verb == "schedule" and len(parts) == 3:
-        return adapter.schedule(parts[1], parts[2])
+        return verb, (parts[1], parts[2])
     if verb == "delete" and len(parts) == 2:
-        return adapter.delete_unattached(parts[1])
+        return verb, (parts[1],)
     if verb == "transition" and len(parts) == 4 and parts[2] == "to":
-        return adapter.storage_lifecycle(parts[1], parts[3])
+        return verb, (parts[1], parts[3])
     raise ApplyError(f"unsupported plan action: {line}")
+
+
+def apply_plan_action(adapter: CloudApplyAdapter, action: str) -> MutationResult:
+    """Map one proposal plan line onto an adapter method."""
+    verb, args = parse_plan_action(action)
+    if verb == "stop":
+        return adapter.stop(args[0])
+    if verb == "start":
+        return adapter.start(args[0])
+    if verb == "resize":
+        return adapter.resize(args[0], args[1])
+    if verb == "schedule":
+        return adapter.schedule(args[0], args[1])
+    if verb == "delete":
+        return adapter.delete_unattached(args[0])
+    if verb == "transition":
+        return adapter.storage_lifecycle(args[0], args[1])
+    raise ApplyError(f"unsupported plan action: {action.strip()}")
 
 
 def apply_action_to_run(
@@ -304,6 +322,84 @@ def rollback_execution(
     if finished is None:
         raise ApplyError(f"execution {run.execution_id} was not found after rollback")
     return finished
+
+
+def dry_run_execution(
+    session,
+    proposal_id: str,
+    *,
+    actor: str,
+    adapter: CloudApplyAdapter | None = None,
+):
+    """Preview an approved plan: validate preconditions and write IaC, no mutate.
+
+    Requires approval and a policy pass. Confirms each proposal resource still
+    exists (API inventory, plus a simulator GET when an adapter is provided).
+    Parses every plan line and writes the reviewable Terraform change. Does not
+    create an ExecutionRun, does not change proposal execution_status, and does
+    not call mutate APIs.
+    """
+    from pathlib import Path
+
+    from app.execution import DryRunResult
+    from app.proposals import ApprovalStatus, ExecutionStatus
+    from app.repositories import ProposalRepository, ResourceRepository, _prohibited_execution
+    from app.terraform_gen import generate_hcl, write_change
+
+    name = actor.strip()
+    if not name:
+        raise ApplyError("dry-run requires an actor")
+    proposals = ProposalRepository(session)
+    proposal = proposals.get(proposal_id)
+    if proposal is None:
+        raise ApplyError(f"proposal {proposal_id} not found")
+    if proposal.approval_status != ApprovalStatus.approved:
+        raise ApplyError(f"proposal {proposal_id} must be approved before dry-run")
+    prohibited = _prohibited_execution(
+        session,
+        proposal_id,
+        ApprovalStatus.approved,
+        ExecutionStatus.queued,
+    )
+    if prohibited is not None:
+        raise ApplyError(f"policy {prohibited} prohibits {proposal_id}")
+
+    resources = ResourceRepository(session)
+    for resource_id in proposal.resource_ids:
+        if resources.get(resource_id) is None:
+            raise ApplyError(f"precondition failed: resource {resource_id} is missing")
+        if adapter is not None:
+            current = _adapter_resource(adapter, resource_id)
+            if current is None:
+                raise ApplyError(
+                    f"precondition failed: simulator resource {resource_id} is missing"
+                )
+
+    for action in proposal.proposed_actions:
+        parse_plan_action(action)
+    generate_hcl(proposal)
+    artifact = write_change(proposal)
+    if not Path(artifact.path).joinpath("main.tf").is_file():
+        raise ApplyError(f"dry-run did not write IaC under {artifact.path}")
+
+    return DryRunResult(
+        proposal_id=proposal.proposal_id,
+        actor=name,
+        plan_snapshot=list(proposal.proposed_actions),
+        rollback_plan=list(proposal.rollback_plan),
+        preconditions=list(proposal.preconditions),
+        artifact_path=artifact.path,
+        artifact_hash=artifact.hash,
+        artifact_created_at=artifact.created_at,
+        dry_run=True,
+    )
+
+
+def _adapter_resource(adapter: CloudApplyAdapter, resource_id: str) -> dict | None:
+    getter = getattr(adapter, "_resource", None)
+    if callable(getter):
+        return getter(resource_id)
+    return None
 
 
 def _unchanged(action: str, resource_id: str, resource: dict | None) -> MutationResult:
