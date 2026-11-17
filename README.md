@@ -60,7 +60,7 @@ make install
 make compose-up
 ```
 
-`make install` creates `.venv`, installs the Python packages and dev tools, and installs the web dependencies. `make compose-up` copies `.env.example` to `.env` when `.env` is missing, then starts Postgres. `.env` is gitignored.
+`make install` creates `.venv`, installs the Python packages and dev tools, and installs the web dependencies. `make compose-up` copies `.env.example` to `.env` when `.env` is missing, then starts Postgres. `.env` is gitignored. `.env.example` documents local vars, the optional `SIMULATOR_MUTATE_TOKEN`, and the least-privilege pattern for future cloud credentials. Do not commit secrets.
 
 Start each process in its own terminal. These keep running until you stop them with Ctrl+C:
 

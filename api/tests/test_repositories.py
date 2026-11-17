@@ -367,7 +367,7 @@ def test_unapproved_execution_is_refused_including_bypass_attempts(session: Sess
         with pytest.raises(ValueError, match="must be approved"):
             repository.update_status("opt-h3", execution_status=status)
     with pytest.raises(ValueError, match="must be approved"):
-        repository.begin_execution("opt-h3")
+        repository.begin_execution("opt-h3", actor="ada")
     cancelled = repository.update_status(
         "opt-h3",
         approval_status=ApprovalStatus.cancelled,
@@ -375,13 +375,13 @@ def test_unapproved_execution_is_refused_including_bypass_attempts(session: Sess
         reason="do not run this yet",
     )
     with pytest.raises(ValueError, match="must be approved"):
-        repository.begin_execution("opt-h3")
+        repository.begin_execution("opt-h3", actor="ada")
     with pytest.raises(ValueError, match="prohibits"):
-        repository.begin_execution("opt-h3-db")
+        repository.begin_execution("opt-h3-db", actor="ada")
     with pytest.raises(ValueError, match="prohibits"):
         repository.update_status("opt-h3-db", execution_status=ExecutionStatus.queued)
 
     assert cancelled is not None
     assert cancelled.execution_status == "not_started"
     assert repository.get("opt-h3-db").execution_status == "not_started"
-    assert repository.begin_execution("missing") is None
+    assert repository.begin_execution("missing", actor="ada") is None

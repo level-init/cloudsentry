@@ -224,6 +224,32 @@ class ExecutionRunRow(Base):
     rollback_plan: Mapped[list] = mapped_column(JSONB, nullable=False)
     rollback_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     rolled_back_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    artifact_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    artifact_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    artifact_created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    applied_action_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+
+
+class ExecutionEventRow(Base):
+    """Append-only execution audit. Updates and deletes are refused."""
+
+    __tablename__ = "execution_events"
+
+    event_id: Mapped[int] = mapped_column(primary_key=True)
+    execution_id: Mapped[str] = mapped_column(
+        ForeignKey("execution_runs.execution_id"), nullable=False
+    )
+    proposal_id: Mapped[str] = mapped_column(
+        ForeignKey("optimization_proposals.proposal_id"), nullable=False
+    )
+    event_type: Mapped[str] = mapped_column(String, nullable=False)
+    actor: Mapped[str] = mapped_column(String, nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    from_status: Mapped[str] = mapped_column(String, nullable=False)
+    to_status: Mapped[str] = mapped_column(String, nullable=False)
 
 
 class VerificationResultRow(Base):

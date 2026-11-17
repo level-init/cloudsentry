@@ -10,7 +10,15 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
+from app.adapters import (
+    ApplyError,
+    PolicyProhibitedError,
+    apply_approved_plan,
+    dry_run_execution,
+    rollback_execution,
+)
 from app.db import get_session
+from app.execution import DryRunResult, ExecutionRun
 from app.proposals import (
     ApprovalDecision,
     ApprovalStatus,
@@ -125,26 +133,112 @@ def reject_proposal(
 
 @router.post(
     "/{proposal_id}/execute",
-    response_model=OptimizationProposal,
+    response_model=OptimizationProposal | DryRunResult,
     summary="Queue an approved proposal",
     description=(
-        "Accepts an approved proposal into the execution queue. "
+        "Accepts an approved proposal into the execution queue and creates an "
+        "ExecutionRun with a snapshot of the plan. "
+        "Send the actor in the X-Actor header. "
         "A pending, rejected, or cancelled proposal is refused, including "
         "SAFE_AUTOMATION. A prohibit policy is refused. "
-        "This does not change the simulator."
+        "This does not change the simulator. "
+        "Set dry_run=true to preview only: validate preconditions, write the "
+        "IaC artifact, and leave execution_status unchanged. Dry-run still "
+        "requires approval and does not call mutate APIs."
     ),
 )
 def execute_proposal(
     proposal_id: str,
+    x_actor: Annotated[str, Header(alias="X-Actor")],
+    dry_run: bool = Query(False),
     session: Session = Depends(get_session),
-) -> OptimizationProposal:
+) -> OptimizationProposal | DryRunResult:
+    name = x_actor.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="X-Actor is required")
+    if dry_run:
+        try:
+            return dry_run_execution(session, proposal_id, actor=name)
+        except ApplyError as exc:
+            detail = str(exc)
+            if detail.endswith("not found"):
+                raise HTTPException(status_code=404, detail=detail) from exc
+            raise HTTPException(status_code=409, detail=detail) from exc
     try:
-        updated = ProposalRepository(session).begin_execution(proposal_id)
+        updated = ProposalRepository(session).begin_execution(proposal_id, actor=name)
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if updated is None:
         raise HTTPException(status_code=404, detail="proposal not found")
     return updated
+
+
+@router.post(
+    "/{proposal_id}/apply",
+    response_model=ExecutionRun,
+    summary="Apply an approved proposal",
+    description=(
+        "Applies the plan to the simulator through the action adapters. "
+        "Requires approval and a live policy pass immediately before mutate. "
+        "A prohibit policy fails closed with error code policy_prohibited, even "
+        "when the proposal was already approved. "
+        "Send the actor in the X-Actor header. "
+        "Creates a queued ExecutionRun when needed, then marks it succeeded or failed. "
+        "A second apply on a succeeded run returns that run unchanged. "
+        "A pending proposal is refused. This is not auto-apply."
+    ),
+)
+def apply_proposal(
+    proposal_id: str,
+    x_actor: Annotated[str, Header(alias="X-Actor")],
+    session: Session = Depends(get_session),
+) -> ExecutionRun:
+    name = x_actor.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="X-Actor is required")
+    try:
+        return apply_approved_plan(session, proposal_id, actor=name)
+    except PolicyProhibitedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except ApplyError as exc:
+        detail = str(exc)
+        if detail.endswith("not found"):
+            raise HTTPException(status_code=404, detail=detail) from exc
+        raise HTTPException(status_code=409, detail=detail) from exc
+
+
+@router.post(
+    "/{proposal_id}/rollback",
+    response_model=ExecutionRun,
+    summary="Roll back an applied proposal",
+    description=(
+        "Reverses a succeeded apply through the simulator using the recorded "
+        "action ids, or the stored rollback plan when none exist. "
+        "Send the actor in the X-Actor header and the reason in the body. "
+        "Marks the run rolled_back and stores the actor and reason."
+    ),
+)
+def rollback_proposal(
+    proposal_id: str,
+    body: ApprovalReason,
+    x_actor: Annotated[str, Header(alias="X-Actor")],
+    session: Session = Depends(get_session),
+) -> ExecutionRun:
+    name = x_actor.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="X-Actor is required")
+    try:
+        return rollback_execution(
+            session,
+            proposal_id,
+            actor=name,
+            reason=body.reason,
+        )
+    except ApplyError as exc:
+        detail = str(exc)
+        if detail.endswith("not found"):
+            raise HTTPException(status_code=404, detail=detail) from exc
+        raise HTTPException(status_code=409, detail=detail) from exc
 
 
 @router.get(

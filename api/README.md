@@ -25,7 +25,7 @@ Stop the server with Ctrl+C. `DATABASE_URL` is optional for this skeleton. The d
 
 With the API running, open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs). The schema is at [http://127.0.0.1:8000/openapi.json](http://127.0.0.1:8000/openapi.json).
 
-`/docs` lists `GET /health` under **system**. **Inventory** includes resource list and get, dependency lookup, and `GET /spend/accounts` plus `GET /spend/environments`. **Proposals** lists and gets optimization proposals, approves or rejects a pending one, and lists the approval audit. **Notifications** lists in-app notices for an owner or a team.
+`/docs` lists `GET /health` under **system**. **Inventory** includes resource list and get, dependency lookup, and `GET /spend/accounts` plus `GET /spend/environments`. **Proposals** lists and gets optimization proposals, approves or rejects a pending one, and lists the approval audit. **Executions** gets an execution run by id and lists its apply/rollback audit. **Notifications** lists in-app notices for an owner or a team.
 
 ```bash
 curl -s 'localhost:8000/proposals?status=pending&risk_class=SAFE_AUTOMATION&environment=development&team=payments&category=idle_compute&limit=20&offset=0'
@@ -63,10 +63,43 @@ Creating a pending proposal writes a notification for the owner and team on the 
 curl -s 'localhost:8000/notifications?owner=payments&team=payments'
 ```
 
-`POST /proposals/{id}/execute` queues an approved proposal. It does not change the simulator. A pending, rejected, or cancelled proposal returns 409, including a proposal labeled `SAFE_AUTOMATION`. An allow policy does not skip approval. A prohibit policy returns 409 even when the stored status is already approved. Queueing, running, or marking success through the status update is refused until the proposal is approved.
+`POST /proposals/{id}/execute` queues an approved proposal and creates an `ExecutionRun` with a snapshot of the plan and rollback. Send the actor in the `X-Actor` header. It does not change the simulator. A pending, rejected, or cancelled proposal returns 409, including a proposal labeled `SAFE_AUTOMATION`. An allow policy does not skip approval. A prohibit policy returns 409 even when the stored status is already approved. Queueing, running, or marking success through the status update is refused until the proposal is approved. A second execute on the same proposal reuses the same run.
+
+`POST /proposals/{id}/execute?dry_run=true` is a preview. It still requires approval and a policy pass. It checks that proposal resources exist, parses the plan lines, and writes the Terraform review artifact. It does not create an `ExecutionRun`, does not change `execution_status`, and does not call mutate APIs. The response is a `DryRunResult` with the plan snapshot and artifact path.
+
+A run moves `queued` → `running` → `succeeded` | `failed` | `rolled_back`. A queued run may also fail. A succeeded run may still roll back. Terminal states set `finished_at`. Queuing also writes a versioned fake-repo change under `TERRAFORM_CHANGES_DIR` (default `terraform/changes/<proposal_id>/<hash12>/`) with `main.tf` and `commit.json`. The run stores `artifact_path`, `artifact_hash`, and `artifact_created_at`. Each generated file comments the proposal id. CloudSentry does not run Terraform against AWS and does not open a real GitHub PR. `GET /executions/{id}` returns the run, including that review path. The id is `execution-{proposal_id}`. See [terraform/README.md](../terraform/README.md).
+
+Successful apply and rollback each append one row to an append-only execution audit. `GET /executions/{id}/audit` lists those events, oldest first. There is no update or delete route, and the table rejects both. The actor is attributed on every mutation. See `.env.example` for the simulator URL / optional mutate token and the least-privilege credential pattern (no secrets in git).
 
 ```bash
-curl -s -X POST localhost:8000/proposals/proposal-idle_compute-i-dev-062/execute
+curl -s -X POST 'localhost:8000/proposals/proposal-idle_compute-i-dev-062/execute?dry_run=true' \
+  -H 'X-Actor: ada'
+curl -s -X POST localhost:8000/proposals/proposal-idle_compute-i-dev-062/execute \
+  -H 'X-Actor: ada'
+curl -s localhost:8000/executions/execution-proposal-idle_compute-i-dev-062
+curl -s localhost:8000/executions/execution-proposal-idle_compute-i-dev-062/audit
+```
+
+`POST /proposals/{id}/apply` applies the plan to the simulator through the action adapters. It requires approval and a live policy pass immediately before mutate. Send the actor in the `X-Actor` header. A pending proposal returns 409. A prohibit policy fails closed with detail starting `policy_prohibited:`, even if the proposal was already approved and a policy changed afterward. If no run exists yet, apply queues one first, then runs every plan step and marks the run `succeeded` or `failed`. A second apply on a succeeded run returns that run unchanged. This is not auto-apply: a person must approve first.
+
+```bash
+curl -s -X POST localhost:8000/proposals/proposal-development_scheduling-i-dev-026/approve \
+  -H 'Content-Type: application/json' \
+  -H 'X-Actor: ada' \
+  -d '{"reason":"development schedule is allowed"}'
+curl -s -X POST localhost:8000/proposals/proposal-development_scheduling-i-dev-026/apply \
+  -H 'X-Actor: ada'
+```
+
+Idempotent re-entry: apply again after success returns the same succeeded run without mutating again. A failed or rolled_back run is refused until a later ticket defines retry.
+
+`POST /proposals/{id}/rollback` reverses a succeeded apply. Send the actor in the `X-Actor` header and the reason in the body. The run stores those on `rolled_back_by` and `rollback_reason`. Rollback prefers the simulator action ids recorded during apply, in reverse order. When none exist, it applies the stored `rollback_plan` lines. A second rollback on an already rolled_back run returns that run unchanged.
+
+```bash
+curl -s -X POST localhost:8000/proposals/proposal-development_scheduling-i-dev-026/rollback \
+  -H 'Content-Type: application/json' \
+  -H 'X-Actor: ada' \
+  -d '{"reason":"morning job missed its window"}'
 ```
 
 ```bash
@@ -102,7 +135,9 @@ On a fresh March 2026 ingest those totals are development `111111111111` 428264 
 
 `app/proposals.py` defines `Finding`, `RiskAssessment`, and `OptimizationProposal`. A proposal includes cost, savings, confidence, evidence, and approval, execution, and verification statuses. The plan is always populated: `preconditions`, `execution_steps`, `rollback`, and `success_metrics`. Each list must contain at least one non-blank line. `execution_steps` is stored as `proposed_actions`, and `rollback` is stored as `rollback_plan`. `api/tests/fixtures/sample_proposal.json` is a complete example. `narrative` is optional text. The worker writes it and rejects a narrative whose savings or risk numbers differ from the structured fields. `model_dump_json()` produces an API response.
 
-`app/execution.py` defines `ExecutionRun`, `VerificationResult`, and `RealizedSavings`. Each record carries `proposal_id`. A run stores the actor, plan snapshot, timestamps, and rollback metadata. A verification result records predicted savings, realized savings, operational impact, and a status of `success`, `partial`, `rollback`, or `inconclusive`.
+`app/execution.py` defines `ExecutionRun`, `VerificationResult`, and `RealizedSavings`. Each record carries `proposal_id`. A run stores the actor, plan snapshot, timestamps, and rollback metadata. Queuing an approved proposal creates the run and keeps the proposal `execution_status` in sync as the run moves. A verification result records predicted savings, realized savings, operational impact, and a status of `success`, `partial`, `rollback`, or `inconclusive`.
+
+`app/adapters.py` maps plan lines onto the simulator mutate API: `stop`, `start`, `resize … to …`, `schedule …`, `delete …`, and `transition … to …`. The adapter talks to `SIMULATOR_BASE_URL` over HTTP and does not import the simulator package. When `SIMULATOR_MUTATE_TOKEN` is set, mutate and read calls send `Authorization: Bearer …`. Calls that would no-op (already stopped, already the target sku, and so on) return `changed=false` without posting. `apply_approved_plan` re-evaluates org policies at the execution boundary and immediately before each mutate, fails closed on prohibit (`policy_prohibited`), stores changed action ids on the run, marks the `ExecutionRun` succeeded or failed, and appends an apply audit event. `rollback_execution` reverses those action ids when present, otherwise the rollback plan lines, marks the run `rolled_back`, and appends a rollback audit event. `dry_run_execution` validates preconditions and writes the IaC artifact without mutating or queuing.
 
 ## Migrations
 

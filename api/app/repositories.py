@@ -10,6 +10,13 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from app.approval import require_transition
+from app.execution import (
+    ExecutionEvent,
+    ExecutionEventType,
+    ExecutionRun,
+    is_terminal,
+    require_run_transition,
+)
 from app.notifications import record_pending
 from app.policy import Decision, default_policies, evaluate
 from app.proposals import (
@@ -37,6 +44,8 @@ from app.tables import (
     CostRecordRow,
     DependencyRow,
     DetectionRunRow,
+    ExecutionEventRow,
+    ExecutionRunRow,
     FindingRow,
     IncidentRow,
     MetricRollupRow,
@@ -45,6 +54,7 @@ from app.tables import (
     ResourceRow,
     RiskAssessmentRow,
 )
+from app.terraform_gen import write_change
 
 
 class ResourceRepository:
@@ -695,7 +705,7 @@ class ProposalRepository:
         ).all()
         return [_decision_from_row(row) for row in rows]
 
-    def begin_execution(self, proposal_id: str) -> OptimizationProposal | None:
+    def begin_execution(self, proposal_id: str, *, actor: str) -> OptimizationProposal | None:
         current = self.get(proposal_id)
         if current is None:
             return None
@@ -711,7 +721,14 @@ class ProposalRepository:
             if prohibited is not None:
                 raise ValueError(f"policy {prohibited} prohibits {proposal_id}")
             return current
-        return self.update_status(proposal_id, execution_status=ExecutionStatus.queued)
+        name = actor.strip()
+        if not name:
+            raise ValueError("execution requires an actor")
+        updated = self.update_status(proposal_id, execution_status=ExecutionStatus.queued)
+        if updated is None:
+            return None
+        ExecutionRunRepository(self.session).create_queued(updated, actor=name)
+        return updated
 
     def set_narrative(self, proposal_id: str, narrative: str) -> OptimizationProposal | None:
         row = self.session.get(ProposalRow, proposal_id)
@@ -720,6 +737,168 @@ class ProposalRepository:
         row.narrative = narrative
         self.session.flush()
         return self.get(proposal_id)
+
+
+class ExecutionRunRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def create_queued(self, proposal: OptimizationProposal, *, actor: str) -> ExecutionRun:
+        existing = self.for_proposal(proposal.proposal_id)
+        if existing is not None:
+            return existing
+        when = datetime.now(timezone.utc)
+        artifact = write_change(proposal, created_at=when)
+        row = ExecutionRunRow(
+            execution_id=_execution_id(proposal.proposal_id),
+            proposal_id=proposal.proposal_id,
+            status=ExecutionStatus.queued.value,
+            actor=actor.strip(),
+            plan_snapshot=list(proposal.proposed_actions),
+            started_at=when,
+            finished_at=None,
+            rollback_plan=list(proposal.rollback_plan),
+            rollback_reason=None,
+            rolled_back_by=None,
+            artifact_path=artifact.path,
+            artifact_hash=artifact.hash,
+            artifact_created_at=artifact.created_at,
+            applied_action_ids=[],
+        )
+        self.session.add(row)
+        self.session.flush()
+        return _execution_from_row(row)
+
+    def set_applied_action_ids(
+        self, execution_id: str, action_ids: Sequence[str]
+    ) -> ExecutionRun | None:
+        row = self.session.get(ExecutionRunRow, execution_id)
+        if row is None:
+            return None
+        row.applied_action_ids = list(action_ids)
+        self.session.flush()
+        return _execution_from_row(row)
+
+    def get(self, execution_id: str) -> ExecutionRun | None:
+        row = self.session.get(ExecutionRunRow, execution_id)
+        if row is None:
+            return None
+        return _execution_from_row(row)
+
+    def for_proposal(self, proposal_id: str) -> ExecutionRun | None:
+        row = self.session.scalar(
+            select(ExecutionRunRow)
+            .where(ExecutionRunRow.proposal_id == proposal_id)
+            .order_by(ExecutionRunRow.started_at, ExecutionRunRow.execution_id)
+        )
+        if row is None:
+            return None
+        return _execution_from_row(row)
+
+    def update_status(
+        self,
+        execution_id: str,
+        status: ExecutionStatus,
+        *,
+        rollback_reason: str | None = None,
+        rolled_back_by: str | None = None,
+        finished_at: datetime | None = None,
+    ) -> ExecutionRun | None:
+        row = self.session.get(ExecutionRunRow, execution_id)
+        if row is None:
+            return None
+        current = ExecutionStatus(row.status)
+        require_run_transition(current, status)
+        if status == ExecutionStatus.rolled_back:
+            who = None if rolled_back_by is None else rolled_back_by.strip()
+            why = None if rollback_reason is None else rollback_reason.strip()
+            if not who or not why:
+                raise ValueError("rollback requires rolled_back_by and rollback_reason")
+            row.rolled_back_by = who
+            row.rollback_reason = why
+        row.status = status.value
+        if is_terminal(status):
+            row.finished_at = datetime.now(timezone.utc) if finished_at is None else finished_at
+        proposal = self.session.get(ProposalRow, row.proposal_id)
+        if proposal is not None:
+            proposal.execution_status = status.value
+        self.session.flush()
+        return _execution_from_row(row)
+
+    def append_event(
+        self,
+        *,
+        execution_id: str,
+        proposal_id: str,
+        event_type: ExecutionEventType,
+        actor: str,
+        reason: str,
+        from_status: ExecutionStatus,
+        to_status: ExecutionStatus,
+        occurred_at: datetime | None = None,
+    ) -> ExecutionEvent:
+        name = actor.strip()
+        why = reason.strip()
+        if not name or not why:
+            raise ValueError("execution audit requires an actor and a reason")
+        when = datetime.now(timezone.utc) if occurred_at is None else occurred_at
+        row = ExecutionEventRow(
+            execution_id=execution_id,
+            proposal_id=proposal_id,
+            event_type=event_type.value,
+            actor=name,
+            reason=why,
+            occurred_at=when,
+            from_status=from_status.value,
+            to_status=to_status.value,
+        )
+        self.session.add(row)
+        self.session.flush()
+        return _execution_event_from_row(row)
+
+    def events(self, execution_id: str) -> Sequence[ExecutionEvent]:
+        rows = self.session.scalars(
+            select(ExecutionEventRow)
+            .where(ExecutionEventRow.execution_id == execution_id)
+            .order_by(ExecutionEventRow.event_id)
+        ).all()
+        return [_execution_event_from_row(row) for row in rows]
+
+
+def _execution_id(proposal_id: str) -> str:
+    return f"execution-{proposal_id}"
+
+
+def _execution_from_row(row: ExecutionRunRow) -> ExecutionRun:
+    return ExecutionRun(
+        execution_id=row.execution_id,
+        proposal_id=row.proposal_id,
+        status=row.status,
+        actor=row.actor,
+        plan_snapshot=list(row.plan_snapshot),
+        started_at=row.started_at,
+        finished_at=row.finished_at,
+        rollback_plan=list(row.rollback_plan),
+        rollback_reason=row.rollback_reason,
+        rolled_back_by=row.rolled_back_by,
+        artifact_path=row.artifact_path,
+        artifact_hash=row.artifact_hash,
+        artifact_created_at=row.artifact_created_at,
+        applied_action_ids=list(row.applied_action_ids or []),
+    )
+
+
+def _execution_event_from_row(row: ExecutionEventRow) -> ExecutionEvent:
+    return ExecutionEvent(
+        execution_id=row.execution_id,
+        proposal_id=row.proposal_id,
+        event_type=row.event_type,
+        actor=row.actor,
+        reason=row.reason,
+        occurred_at=row.occurred_at,
+        from_status=row.from_status,
+        to_status=row.to_status,
+    )
 
 
 def _require_decision(actor: str | None, reason: str | None) -> tuple[str, str]:
@@ -789,6 +968,11 @@ def _prohibited_execution(
 ) -> str | None:
     if not _starts_execution(approval_status, execution_status):
         return None
+    return prohibiting_policy(session, proposal_id)
+
+
+def prohibiting_policy(session: Session, proposal_id: str) -> str | None:
+    """Re-read live policies for a proposal. Returns the winning prohibit name."""
     proposal = session.get(ProposalRow, proposal_id)
     if proposal is None:
         return None
