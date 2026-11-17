@@ -187,6 +187,67 @@ def apply_action_to_run(
         raise
 
 
+def apply_approved_plan(
+    session,
+    proposal_id: str,
+    *,
+    actor: str,
+    adapter: CloudApplyAdapter | None = None,
+):
+    """Apply every plan step for an approved proposal to the simulator.
+
+    Requires approval and a policy pass. Creates a queued ExecutionRun when
+    one does not exist yet. A succeeded run is returned unchanged (idempotent
+    re-entry). A failed or rolled_back run is refused. Adapter no-ops make
+    individual steps safe to repeat; the normal path short-circuits when the
+    run is already succeeded.
+    """
+    from app.proposals import ApprovalStatus, ExecutionStatus
+    from app.repositories import (
+        ExecutionRunRepository,
+        ProposalRepository,
+        _prohibited_execution,
+    )
+
+    name = actor.strip()
+    if not name:
+        raise ApplyError("apply requires an actor")
+    proposals = ProposalRepository(session)
+    proposal = proposals.get(proposal_id)
+    if proposal is None:
+        raise ApplyError(f"proposal {proposal_id} not found")
+    if proposal.approval_status != ApprovalStatus.approved:
+        raise ApplyError(f"proposal {proposal_id} must be approved before apply")
+    prohibited = _prohibited_execution(
+        session,
+        proposal_id,
+        ApprovalStatus.approved,
+        ExecutionStatus.running,
+    )
+    if prohibited is not None:
+        raise ApplyError(f"policy {prohibited} prohibits {proposal_id}")
+
+    runs = ExecutionRunRepository(session)
+    run = runs.for_proposal(proposal_id)
+    if run is None:
+        proposals.begin_execution(proposal_id, actor=name)
+        run = runs.for_proposal(proposal_id)
+        if run is None:
+            raise ApplyError(f"execution for {proposal_id} was not created")
+    if run.status == ExecutionStatus.succeeded:
+        return run
+    if run.status in {ExecutionStatus.failed, ExecutionStatus.rolled_back}:
+        raise ApplyError(f"execution {run.execution_id} is {run.status.value}")
+
+    apply_adapter = adapter if adapter is not None else SimulatorApplyAdapter()
+    for action in run.plan_snapshot:
+        apply_action_to_run(session, run.execution_id, action, apply_adapter)
+    finished = runs.update_status(run.execution_id, ExecutionStatus.succeeded)
+    if finished is None:
+        raise ApplyError(f"execution {run.execution_id} was not found after apply")
+    return finished
+
+
 def _unchanged(action: str, resource_id: str, resource: dict | None) -> MutationResult:
     return MutationResult(
         action_id="",

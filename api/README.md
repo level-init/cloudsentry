@@ -73,6 +73,19 @@ curl -s -X POST localhost:8000/proposals/proposal-idle_compute-i-dev-062/execute
 curl -s localhost:8000/executions/execution-proposal-idle_compute-i-dev-062
 ```
 
+`POST /proposals/{id}/apply` applies the plan to the simulator through the action adapters. It requires approval and a policy pass. Send the actor in the `X-Actor` header. A pending proposal returns 409. If no run exists yet, apply queues one first, then runs every plan step and marks the run `succeeded` or `failed`. A second apply on a succeeded run returns that run unchanged. This is not auto-apply: a person must approve first.
+
+```bash
+curl -s -X POST localhost:8000/proposals/proposal-development_scheduling-i-dev-026/approve \
+  -H 'Content-Type: application/json' \
+  -H 'X-Actor: ada' \
+  -d '{"reason":"development schedule is allowed"}'
+curl -s -X POST localhost:8000/proposals/proposal-development_scheduling-i-dev-026/apply \
+  -H 'X-Actor: ada'
+```
+
+Idempotent re-entry: apply again after success returns the same succeeded run without mutating again. A failed or rolled_back run is refused until a later ticket defines retry.
+
 ```bash
 curl -s 'localhost:8000/resources?account_id=111111111111&environment=development&resource_type=compute'
 curl -s 'localhost:8000/resources/i-dev-062?year=2026&month=3'
@@ -108,7 +121,7 @@ On a fresh March 2026 ingest those totals are development `111111111111` 428264 
 
 `app/execution.py` defines `ExecutionRun`, `VerificationResult`, and `RealizedSavings`. Each record carries `proposal_id`. A run stores the actor, plan snapshot, timestamps, and rollback metadata. Queuing an approved proposal creates the run and keeps the proposal `execution_status` in sync as the run moves. A verification result records predicted savings, realized savings, operational impact, and a status of `success`, `partial`, `rollback`, or `inconclusive`.
 
-`app/adapters.py` maps plan lines onto the simulator mutate API: `stop`, `start`, `resize … to …`, `schedule …`, `delete …`, and `transition … to …`. The adapter talks to `SIMULATOR_BASE_URL` over HTTP and does not import the simulator package. Calls that would no-op (already stopped, already the target sku, and so on) return `changed=false` without posting. A failed adapter call can mark the linked `ExecutionRun` failed. Full plan orchestration is a later ticket.
+`app/adapters.py` maps plan lines onto the simulator mutate API: `stop`, `start`, `resize … to …`, `schedule …`, `delete …`, and `transition … to …`. The adapter talks to `SIMULATOR_BASE_URL` over HTTP and does not import the simulator package. Calls that would no-op (already stopped, already the target sku, and so on) return `changed=false` without posting. `apply_approved_plan` runs every plan step for an approved proposal, re-checks prohibit policies, and marks the `ExecutionRun` succeeded or failed.
 
 ## Migrations
 
