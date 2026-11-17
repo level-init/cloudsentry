@@ -25,7 +25,7 @@ Stop the server with Ctrl+C. `DATABASE_URL` is optional for this skeleton. The d
 
 With the API running, open [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs). The schema is at [http://127.0.0.1:8000/openapi.json](http://127.0.0.1:8000/openapi.json).
 
-`/docs` lists `GET /health` under **system**. **Inventory** includes resource list and get, dependency lookup, and `GET /spend/accounts` plus `GET /spend/environments`. **Proposals** lists and gets optimization proposals, approves or rejects a pending one, and lists the approval audit. **Executions** gets an execution run by id. **Notifications** lists in-app notices for an owner or a team.
+`/docs` lists `GET /health` under **system**. **Inventory** includes resource list and get, dependency lookup, and `GET /spend/accounts` plus `GET /spend/environments`. **Proposals** lists and gets optimization proposals, approves or rejects a pending one, and lists the approval audit. **Executions** gets an execution run by id and lists its apply/rollback audit. **Notifications** lists in-app notices for an owner or a team.
 
 ```bash
 curl -s 'localhost:8000/proposals?status=pending&risk_class=SAFE_AUTOMATION&environment=development&team=payments&category=idle_compute&limit=20&offset=0'
@@ -69,12 +69,15 @@ curl -s 'localhost:8000/notifications?owner=payments&team=payments'
 
 A run moves `queued` → `running` → `succeeded` | `failed` | `rolled_back`. A queued run may also fail. A succeeded run may still roll back. Terminal states set `finished_at`. Queuing also writes a versioned fake-repo change under `TERRAFORM_CHANGES_DIR` (default `terraform/changes/<proposal_id>/<hash12>/`) with `main.tf` and `commit.json`. The run stores `artifact_path`, `artifact_hash`, and `artifact_created_at`. Each generated file comments the proposal id. CloudSentry does not run Terraform against AWS and does not open a real GitHub PR. `GET /executions/{id}` returns the run, including that review path. The id is `execution-{proposal_id}`. See [terraform/README.md](../terraform/README.md).
 
+Successful apply and rollback each append one row to an append-only execution audit. `GET /executions/{id}/audit` lists those events, oldest first. There is no update or delete route, and the table rejects both. The actor is attributed on every mutation. See `.env.example` for the simulator URL / optional mutate token and the least-privilege credential pattern (no secrets in git).
+
 ```bash
 curl -s -X POST 'localhost:8000/proposals/proposal-idle_compute-i-dev-062/execute?dry_run=true' \
   -H 'X-Actor: ada'
 curl -s -X POST localhost:8000/proposals/proposal-idle_compute-i-dev-062/execute \
   -H 'X-Actor: ada'
 curl -s localhost:8000/executions/execution-proposal-idle_compute-i-dev-062
+curl -s localhost:8000/executions/execution-proposal-idle_compute-i-dev-062/audit
 ```
 
 `POST /proposals/{id}/apply` applies the plan to the simulator through the action adapters. It requires approval and a policy pass. Send the actor in the `X-Actor` header. A pending proposal returns 409. If no run exists yet, apply queues one first, then runs every plan step and marks the run `succeeded` or `failed`. A second apply on a succeeded run returns that run unchanged. This is not auto-apply: a person must approve first.
@@ -134,7 +137,7 @@ On a fresh March 2026 ingest those totals are development `111111111111` 428264 
 
 `app/execution.py` defines `ExecutionRun`, `VerificationResult`, and `RealizedSavings`. Each record carries `proposal_id`. A run stores the actor, plan snapshot, timestamps, and rollback metadata. Queuing an approved proposal creates the run and keeps the proposal `execution_status` in sync as the run moves. A verification result records predicted savings, realized savings, operational impact, and a status of `success`, `partial`, `rollback`, or `inconclusive`.
 
-`app/adapters.py` maps plan lines onto the simulator mutate API: `stop`, `start`, `resize … to …`, `schedule …`, `delete …`, and `transition … to …`. The adapter talks to `SIMULATOR_BASE_URL` over HTTP and does not import the simulator package. Calls that would no-op (already stopped, already the target sku, and so on) return `changed=false` without posting. `apply_approved_plan` runs every plan step for an approved proposal, re-checks prohibit policies, stores changed action ids on the run, and marks the `ExecutionRun` succeeded or failed. `rollback_execution` reverses those action ids when present, otherwise the rollback plan lines, then marks the run `rolled_back`. `dry_run_execution` validates preconditions and writes the IaC artifact without mutating or queuing.
+`app/adapters.py` maps plan lines onto the simulator mutate API: `stop`, `start`, `resize … to …`, `schedule …`, `delete …`, and `transition … to …`. The adapter talks to `SIMULATOR_BASE_URL` over HTTP and does not import the simulator package. When `SIMULATOR_MUTATE_TOKEN` is set, mutate and read calls send `Authorization: Bearer …`. Calls that would no-op (already stopped, already the target sku, and so on) return `changed=false` without posting. `apply_approved_plan` runs every plan step for an approved proposal, re-checks prohibit policies, stores changed action ids on the run, marks the `ExecutionRun` succeeded or failed, and appends an apply audit event. `rollback_execution` reverses those action ids when present, otherwise the rollback plan lines, marks the run `rolled_back`, and appends a rollback audit event. `dry_run_execution` validates preconditions and writes the IaC artifact without mutating or queuing.
 
 ## Migrations
 

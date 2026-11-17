@@ -6,6 +6,8 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql://cloudsentry:cloudsentry@localhost:5432/cloudsentry"
     simulator_base_url: str = "http://127.0.0.1:8001"
+    # Optional bearer for a future authenticated simulator. Blank locally.
+    simulator_mutate_token: str = ""
     terraform_changes_dir: str = "terraform/changes"
 
 
