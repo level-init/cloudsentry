@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.adapters import (
     ApplyError,
+    PolicyProhibitedError,
     apply_approved_plan,
     dry_run_execution,
     rollback_execution,
@@ -178,7 +179,10 @@ def execute_proposal(
     summary="Apply an approved proposal",
     description=(
         "Applies the plan to the simulator through the action adapters. "
-        "Requires approval and a policy pass. Send the actor in the X-Actor header. "
+        "Requires approval and a live policy pass immediately before mutate. "
+        "A prohibit policy fails closed with error code policy_prohibited, even "
+        "when the proposal was already approved. "
+        "Send the actor in the X-Actor header. "
         "Creates a queued ExecutionRun when needed, then marks it succeeded or failed. "
         "A second apply on a succeeded run returns that run unchanged. "
         "A pending proposal is refused. This is not auto-apply."
@@ -194,6 +198,8 @@ def apply_proposal(
         raise HTTPException(status_code=422, detail="X-Actor is required")
     try:
         return apply_approved_plan(session, proposal_id, actor=name)
+    except PolicyProhibitedError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ApplyError as exc:
         detail = str(exc)
         if detail.endswith("not found"):

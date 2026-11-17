@@ -23,6 +23,17 @@ class ApplyError(ValueError):
     """A mutate call failed or the plan action is unknown."""
 
 
+class PolicyProhibitedError(ApplyError):
+    """Fail closed when a live prohibit policy blocks mutate."""
+
+    code = "policy_prohibited"
+
+    def __init__(self, policy_name: str, proposal_id: str) -> None:
+        self.policy_name = policy_name
+        self.proposal_id = proposal_id
+        super().__init__(f"{self.code}: policy {policy_name} prohibits {proposal_id}")
+
+
 @dataclass(frozen=True)
 class MutationResult:
     action_id: str
@@ -184,6 +195,15 @@ def apply_plan_action(adapter: CloudApplyAdapter, action: str) -> MutationResult
     raise ApplyError(f"unsupported plan action: {action.strip()}")
 
 
+def require_not_prohibited(session, proposal_id: str) -> None:
+    """Re-evaluate live org policies immediately before mutate. Fail closed."""
+    from app.repositories import prohibiting_policy
+
+    prohibited = prohibiting_policy(session, proposal_id)
+    if prohibited is not None:
+        raise PolicyProhibitedError(prohibited, proposal_id)
+
+
 def apply_action_to_run(
     session,
     execution_id: str,
@@ -192,8 +212,9 @@ def apply_action_to_run(
 ) -> MutationResult:
     """Apply one plan line and mark the run failed when the adapter errors.
 
-    A queued run moves to running first. This does not mark the run succeeded;
-    that belongs to applying the full plan.
+    Re-checks prohibit policies immediately before each mutate. A queued run
+    moves to running first. This does not mark the run succeeded; that belongs
+    to applying the full plan.
     """
     from app.proposals import ExecutionStatus
     from app.repositories import ExecutionRunRepository
@@ -202,11 +223,13 @@ def apply_action_to_run(
     run = runs.get(execution_id)
     if run is None:
         raise ApplyError(f"execution {execution_id} not found")
+    require_not_prohibited(session, run.proposal_id)
     if run.status == ExecutionStatus.queued:
         runs.update_status(execution_id, ExecutionStatus.running)
     elif run.status != ExecutionStatus.running:
         raise ApplyError(f"execution {execution_id} is {run.status.value}")
     try:
+        require_not_prohibited(session, run.proposal_id)
         return apply_plan_action(adapter, action)
     except ApplyError:
         runs.update_status(execution_id, ExecutionStatus.failed)
@@ -222,19 +245,16 @@ def apply_approved_plan(
 ):
     """Apply every plan step for an approved proposal to the simulator.
 
-    Requires approval and a policy pass. Creates a queued ExecutionRun when
-    one does not exist yet. A succeeded run is returned unchanged (idempotent
-    re-entry). A failed or rolled_back run is refused. Adapter no-ops make
-    individual steps safe to repeat; the normal path short-circuits when the
-    run is already succeeded.
+    Requires approval and a live policy pass at the execution boundary.
+    Creates a queued ExecutionRun when one does not exist yet. A succeeded run
+    is returned unchanged (idempotent re-entry). A failed or rolled_back run is
+    refused. Adapter no-ops make individual steps safe to repeat; the normal
+    path short-circuits when the run is already succeeded. A prohibit that
+    appears after approve still blocks mutate.
     """
     from app.execution import ExecutionEventType
     from app.proposals import ApprovalStatus, ExecutionStatus
-    from app.repositories import (
-        ExecutionRunRepository,
-        ProposalRepository,
-        _prohibited_execution,
-    )
+    from app.repositories import ExecutionRunRepository, ProposalRepository
 
     name = actor.strip()
     if not name:
@@ -245,14 +265,7 @@ def apply_approved_plan(
         raise ApplyError(f"proposal {proposal_id} not found")
     if proposal.approval_status != ApprovalStatus.approved:
         raise ApplyError(f"proposal {proposal_id} must be approved before apply")
-    prohibited = _prohibited_execution(
-        session,
-        proposal_id,
-        ApprovalStatus.approved,
-        ExecutionStatus.running,
-    )
-    if prohibited is not None:
-        raise ApplyError(f"policy {prohibited} prohibits {proposal_id}")
+    require_not_prohibited(session, proposal_id)
 
     runs = ExecutionRunRepository(session)
     run = runs.for_proposal(proposal_id)
@@ -372,8 +385,8 @@ def dry_run_execution(
     from pathlib import Path
 
     from app.execution import DryRunResult
-    from app.proposals import ApprovalStatus, ExecutionStatus
-    from app.repositories import ProposalRepository, ResourceRepository, _prohibited_execution
+    from app.proposals import ApprovalStatus
+    from app.repositories import ProposalRepository, ResourceRepository
     from app.terraform_gen import generate_hcl, write_change
 
     name = actor.strip()
@@ -385,14 +398,7 @@ def dry_run_execution(
         raise ApplyError(f"proposal {proposal_id} not found")
     if proposal.approval_status != ApprovalStatus.approved:
         raise ApplyError(f"proposal {proposal_id} must be approved before dry-run")
-    prohibited = _prohibited_execution(
-        session,
-        proposal_id,
-        ApprovalStatus.approved,
-        ExecutionStatus.queued,
-    )
-    if prohibited is not None:
-        raise ApplyError(f"policy {prohibited} prohibits {proposal_id}")
+    require_not_prohibited(session, proposal_id)
 
     resources = ResourceRepository(session)
     for resource_id in proposal.resource_ids:

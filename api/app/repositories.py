@@ -968,6 +968,11 @@ def _prohibited_execution(
 ) -> str | None:
     if not _starts_execution(approval_status, execution_status):
         return None
+    return prohibiting_policy(session, proposal_id)
+
+
+def prohibiting_policy(session: Session, proposal_id: str) -> str | None:
+    """Re-read live policies for a proposal. Returns the winning prohibit name."""
     proposal = session.get(ProposalRow, proposal_id)
     if proposal is None:
         return None
