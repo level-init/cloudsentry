@@ -54,7 +54,7 @@ class CloudApplyAdapter(Protocol):
     def rollback(self, action_id: str) -> object: ...
 ```
 
-`object` here means the resource, sample, cost, edge, incident, or action record for that call. The HTTP shapes live in the simulator OpenAPI doc at `http://127.0.0.1:8001/docs`. This sketch is the swap point, not a second implementation.
+`object` here means the resource, sample, cost, edge, incident, or action record for that call. The HTTP shapes live in the simulator OpenAPI doc at `http://127.0.0.1:8001/docs`. This sketch is the swap point, not a second implementation. The API package implements the apply side in `app/adapters.py` as `SimulatorApplyAdapter`, which posts to these action routes and maps proposal plan lines onto them.
 
 ## Endpoints and the AWS stand-in
 

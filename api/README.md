@@ -108,6 +108,8 @@ On a fresh March 2026 ingest those totals are development `111111111111` 428264 
 
 `app/execution.py` defines `ExecutionRun`, `VerificationResult`, and `RealizedSavings`. Each record carries `proposal_id`. A run stores the actor, plan snapshot, timestamps, and rollback metadata. Queuing an approved proposal creates the run and keeps the proposal `execution_status` in sync as the run moves. A verification result records predicted savings, realized savings, operational impact, and a status of `success`, `partial`, `rollback`, or `inconclusive`.
 
+`app/adapters.py` maps plan lines onto the simulator mutate API: `stop`, `start`, `resize … to …`, `schedule …`, `delete …`, and `transition … to …`. The adapter talks to `SIMULATOR_BASE_URL` over HTTP and does not import the simulator package. Calls that would no-op (already stopped, already the target sku, and so on) return `changed=false` without posting. A failed adapter call can mark the linked `ExecutionRun` failed. Full plan orchestration is a later ticket.
+
 ## Migrations
 
 From the repository root, after Postgres is running:
