@@ -56,6 +56,9 @@ def test_openapi_lists_proposal_routes() -> None:
     apply_route = schema["paths"]["/proposals/{proposal_id}/apply"]["post"]
     assert apply_route["tags"] == ["proposals"]
     assert "X-Actor" in {item["name"] for item in apply_route["parameters"]}
+    rollback_route = schema["paths"]["/proposals/{proposal_id}/rollback"]["post"]
+    assert rollback_route["tags"] == ["proposals"]
+    assert "X-Actor" in {item["name"] for item in rollback_route["parameters"]}
     assert {
         "status",
         "risk_class",

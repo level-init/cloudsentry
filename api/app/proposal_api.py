@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
-from app.adapters import ApplyError, apply_approved_plan
+from app.adapters import ApplyError, apply_approved_plan, rollback_execution
 from app.db import get_session
 from app.execution import ExecutionRun
 from app.proposals import (
@@ -177,6 +177,40 @@ def apply_proposal(
         raise HTTPException(status_code=422, detail="X-Actor is required")
     try:
         return apply_approved_plan(session, proposal_id, actor=name)
+    except ApplyError as exc:
+        detail = str(exc)
+        if detail.endswith("not found"):
+            raise HTTPException(status_code=404, detail=detail) from exc
+        raise HTTPException(status_code=409, detail=detail) from exc
+
+
+@router.post(
+    "/{proposal_id}/rollback",
+    response_model=ExecutionRun,
+    summary="Roll back an applied proposal",
+    description=(
+        "Reverses a succeeded apply through the simulator using the recorded "
+        "action ids, or the stored rollback plan when none exist. "
+        "Send the actor in the X-Actor header and the reason in the body. "
+        "Marks the run rolled_back and stores the actor and reason."
+    ),
+)
+def rollback_proposal(
+    proposal_id: str,
+    body: ApprovalReason,
+    x_actor: Annotated[str, Header(alias="X-Actor")],
+    session: Session = Depends(get_session),
+) -> ExecutionRun:
+    name = x_actor.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="X-Actor is required")
+    try:
+        return rollback_execution(
+            session,
+            proposal_id,
+            actor=name,
+            reason=body.reason,
+        )
     except ApplyError as exc:
         detail = str(exc)
         if detail.endswith("not found"):

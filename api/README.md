@@ -86,6 +86,15 @@ curl -s -X POST localhost:8000/proposals/proposal-development_scheduling-i-dev-0
 
 Idempotent re-entry: apply again after success returns the same succeeded run without mutating again. A failed or rolled_back run is refused until a later ticket defines retry.
 
+`POST /proposals/{id}/rollback` reverses a succeeded apply. Send the actor in the `X-Actor` header and the reason in the body. The run stores those on `rolled_back_by` and `rollback_reason`. Rollback prefers the simulator action ids recorded during apply, in reverse order. When none exist, it applies the stored `rollback_plan` lines. A second rollback on an already rolled_back run returns that run unchanged.
+
+```bash
+curl -s -X POST localhost:8000/proposals/proposal-development_scheduling-i-dev-026/rollback \
+  -H 'Content-Type: application/json' \
+  -H 'X-Actor: ada' \
+  -d '{"reason":"morning job missed its window"}'
+```
+
 ```bash
 curl -s 'localhost:8000/resources?account_id=111111111111&environment=development&resource_type=compute'
 curl -s 'localhost:8000/resources/i-dev-062?year=2026&month=3'
@@ -121,7 +130,7 @@ On a fresh March 2026 ingest those totals are development `111111111111` 428264 
 
 `app/execution.py` defines `ExecutionRun`, `VerificationResult`, and `RealizedSavings`. Each record carries `proposal_id`. A run stores the actor, plan snapshot, timestamps, and rollback metadata. Queuing an approved proposal creates the run and keeps the proposal `execution_status` in sync as the run moves. A verification result records predicted savings, realized savings, operational impact, and a status of `success`, `partial`, `rollback`, or `inconclusive`.
 
-`app/adapters.py` maps plan lines onto the simulator mutate API: `stop`, `start`, `resize … to …`, `schedule …`, `delete …`, and `transition … to …`. The adapter talks to `SIMULATOR_BASE_URL` over HTTP and does not import the simulator package. Calls that would no-op (already stopped, already the target sku, and so on) return `changed=false` without posting. `apply_approved_plan` runs every plan step for an approved proposal, re-checks prohibit policies, and marks the `ExecutionRun` succeeded or failed.
+`app/adapters.py` maps plan lines onto the simulator mutate API: `stop`, `start`, `resize … to …`, `schedule …`, `delete …`, and `transition … to …`. The adapter talks to `SIMULATOR_BASE_URL` over HTTP and does not import the simulator package. Calls that would no-op (already stopped, already the target sku, and so on) return `changed=false` without posting. `apply_approved_plan` runs every plan step for an approved proposal, re-checks prohibit policies, stores changed action ids on the run, and marks the `ExecutionRun` succeeded or failed. `rollback_execution` reverses those action ids when present, otherwise the rollback plan lines, then marks the run `rolled_back`.
 
 ## Migrations
 

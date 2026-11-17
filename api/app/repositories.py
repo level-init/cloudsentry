@@ -756,8 +756,19 @@ class ExecutionRunRepository:
             artifact_path=artifact.path,
             artifact_hash=artifact.hash,
             artifact_created_at=artifact.created_at,
+            applied_action_ids=[],
         )
         self.session.add(row)
+        self.session.flush()
+        return _execution_from_row(row)
+
+    def set_applied_action_ids(
+        self, execution_id: str, action_ids: Sequence[str]
+    ) -> ExecutionRun | None:
+        row = self.session.get(ExecutionRunRow, execution_id)
+        if row is None:
+            return None
+        row.applied_action_ids = list(action_ids)
         self.session.flush()
         return _execution_from_row(row)
 
@@ -827,6 +838,7 @@ def _execution_from_row(row: ExecutionRunRow) -> ExecutionRun:
         artifact_path=row.artifact_path,
         artifact_hash=row.artifact_hash,
         artifact_created_at=row.artifact_created_at,
+        applied_action_ids=list(row.applied_action_ids or []),
     )
 
 
