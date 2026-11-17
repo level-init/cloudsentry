@@ -10,7 +10,9 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
+from app.adapters import ApplyError, apply_approved_plan
 from app.db import get_session
+from app.execution import ExecutionRun
 from app.proposals import (
     ApprovalDecision,
     ApprovalStatus,
@@ -151,6 +153,35 @@ def execute_proposal(
     if updated is None:
         raise HTTPException(status_code=404, detail="proposal not found")
     return updated
+
+
+@router.post(
+    "/{proposal_id}/apply",
+    response_model=ExecutionRun,
+    summary="Apply an approved proposal",
+    description=(
+        "Applies the plan to the simulator through the action adapters. "
+        "Requires approval and a policy pass. Send the actor in the X-Actor header. "
+        "Creates a queued ExecutionRun when needed, then marks it succeeded or failed. "
+        "A second apply on a succeeded run returns that run unchanged. "
+        "A pending proposal is refused. This is not auto-apply."
+    ),
+)
+def apply_proposal(
+    proposal_id: str,
+    x_actor: Annotated[str, Header(alias="X-Actor")],
+    session: Session = Depends(get_session),
+) -> ExecutionRun:
+    name = x_actor.strip()
+    if not name:
+        raise HTTPException(status_code=422, detail="X-Actor is required")
+    try:
+        return apply_approved_plan(session, proposal_id, actor=name)
+    except ApplyError as exc:
+        detail = str(exc)
+        if detail.endswith("not found"):
+            raise HTTPException(status_code=404, detail=detail) from exc
+        raise HTTPException(status_code=409, detail=detail) from exc
 
 
 @router.get(

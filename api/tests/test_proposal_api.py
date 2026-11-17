@@ -53,6 +53,9 @@ def test_openapi_lists_proposal_routes() -> None:
     assert audit["get"]["tags"] == ["proposals"]
     assert "/executions/{execution_id}" in schema["paths"]
     assert schema["paths"]["/executions/{execution_id}"]["get"]["tags"] == ["executions"]
+    apply_route = schema["paths"]["/proposals/{proposal_id}/apply"]["post"]
+    assert apply_route["tags"] == ["proposals"]
+    assert "X-Actor" in {item["name"] for item in apply_route["parameters"]}
     assert {
         "status",
         "risk_class",
