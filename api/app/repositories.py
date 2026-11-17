@@ -741,6 +741,7 @@ class ExecutionRunRepository:
         if existing is not None:
             return existing
         when = datetime.now(timezone.utc)
+        artifact = write_change(proposal, created_at=when)
         row = ExecutionRunRow(
             execution_id=_execution_id(proposal.proposal_id),
             proposal_id=proposal.proposal_id,
@@ -752,7 +753,9 @@ class ExecutionRunRepository:
             rollback_plan=list(proposal.rollback_plan),
             rollback_reason=None,
             rolled_back_by=None,
-            artifact_path=write_change(proposal),
+            artifact_path=artifact.path,
+            artifact_hash=artifact.hash,
+            artifact_created_at=artifact.created_at,
         )
         self.session.add(row)
         self.session.flush()
@@ -822,6 +825,8 @@ def _execution_from_row(row: ExecutionRunRow) -> ExecutionRun:
         rollback_reason=row.rollback_reason,
         rolled_back_by=row.rolled_back_by,
         artifact_path=row.artifact_path,
+        artifact_hash=row.artifact_hash,
+        artifact_created_at=row.artifact_created_at,
     )
 
 

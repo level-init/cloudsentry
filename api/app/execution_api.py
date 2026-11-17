@@ -16,7 +16,10 @@ router = APIRouter(prefix="/executions", tags=["executions"])
     summary="Get an execution run",
     description=(
         "The run linked to a proposal, including the plan snapshot, status, "
-        "and rollback metadata. A missing id returns 404."
+        "rollback metadata, and the reviewable Terraform change path. "
+        "artifact_path is the fake-repo directory under terraform/changes. "
+        "artifact_hash and artifact_created_at are the commit-like metadata. "
+        "A missing id returns 404."
     ),
 )
 def get_execution(

@@ -71,6 +71,8 @@ class ExecutionRun(BaseModel):
     rollback_reason: str | None = None
     rolled_back_by: str | None = None
     artifact_path: str | None = None
+    artifact_hash: str | None = None
+    artifact_created_at: datetime | None = None
 
 
 class VerificationResult(BaseModel):

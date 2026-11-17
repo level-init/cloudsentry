@@ -234,7 +234,12 @@ def test_execute_waits_for_approval(
     assert run.json()["finished_at"] is None
     assert run.json()["artifact_path"] is not None
     assert "opt-g9-dev" in run.json()["artifact_path"]
-    assert Path(run.json()["artifact_path"]).exists()
+    assert run.json()["artifact_hash"] is not None
+    assert run.json()["artifact_created_at"] is not None
+    artifact = Path(run.json()["artifact_path"])
+    assert artifact.is_dir()
+    assert (artifact / "main.tf").exists()
+    assert (artifact / "commit.json").exists()
     assert missing_run.status_code == 404
 
 

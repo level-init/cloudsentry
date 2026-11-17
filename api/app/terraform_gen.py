@@ -1,16 +1,33 @@
 """Generate reviewable Terraform/HCL for MVP proposal actions.
 
-Files are written under terraform/changes/<proposal_id>/main.tf. Each block
-starts with a comment that names the proposal id. This does not run Terraform
-and does not call AWS.
+Files land under a fake review path:
+
+  terraform/changes/<proposal_id>/<hash>/main.tf
+  terraform/changes/<proposal_id>/<hash>/commit.json
+
+commit.json holds the content hash, timestamp, proposal id, and file list.
+This does not run Terraform, does not call AWS, and does not open a real
+GitHub pull request.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.config import get_settings
 from app.proposals import OptimizationProposal
+
+
+@dataclass(frozen=True)
+class ChangeArtifact:
+    path: str
+    hash: str
+    created_at: datetime
+    files: tuple[str, ...]
 
 
 def generate_hcl(proposal: OptimizationProposal) -> str:
@@ -26,14 +43,39 @@ def generate_hcl(proposal: OptimizationProposal) -> str:
     return "\n".join(blocks).rstrip() + "\n"
 
 
-def write_change(proposal: OptimizationProposal, *, root: Path | None = None) -> str:
-    """Write main.tf for the proposal and return the relative artifact path."""
+def write_change(
+    proposal: OptimizationProposal,
+    *,
+    root: Path | None = None,
+    created_at: datetime | None = None,
+) -> ChangeArtifact:
+    """Write a versioned change directory and return its commit-like metadata."""
+    when = datetime.now(timezone.utc) if created_at is None else created_at
+    content = generate_hcl(proposal)
+    digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    short = digest[:12]
     base = root if root is not None else Path(get_settings().terraform_changes_dir)
-    directory = base / _safe_name(proposal.proposal_id)
+    directory = base / _safe_name(proposal.proposal_id) / short
     directory.mkdir(parents=True, exist_ok=True)
-    path = directory / "main.tf"
-    path.write_text(generate_hcl(proposal), encoding="utf-8")
-    return path.as_posix()
+    main = directory / "main.tf"
+    main.write_text(content, encoding="utf-8")
+    meta = {
+        "proposal_id": proposal.proposal_id,
+        "hash": digest,
+        "created_at": when.isoformat(),
+        "files": ["main.tf"],
+        "review_path": directory.as_posix(),
+    }
+    (directory / "commit.json").write_text(
+        json.dumps(meta, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+    return ChangeArtifact(
+        path=directory.as_posix(),
+        hash=digest,
+        created_at=when,
+        files=("main.tf", "commit.json"),
+    )
 
 
 def _block_for_action(proposal_id: str, action: str) -> str:

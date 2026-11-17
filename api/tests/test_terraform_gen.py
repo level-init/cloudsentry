@@ -1,3 +1,4 @@
+import json
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -48,17 +49,43 @@ def test_schedule_and_resize_hcl_include_the_proposal_id(tmp_path: Path) -> None
 
     schedule_text = generate_hcl(schedule)
     resize_text = generate_hcl(resize)
-    schedule_path = Path(write_change(schedule, root=tmp_path))
-    resize_path = Path(write_change(resize, root=tmp_path))
+    schedule_artifact = write_change(schedule, root=tmp_path)
+    resize_artifact = write_change(resize, root=tmp_path)
+    schedule_main = Path(schedule_artifact.path) / "main.tf"
+    resize_main = Path(resize_artifact.path) / "main.tf"
 
     assert "CloudSentry proposal: opt-i3-schedule" in schedule_text
     assert "Action: schedule i-dev-026 weekdays-09-17" in schedule_text
     assert 'Schedule = "weekdays-09-17"' in schedule_text
-    assert schedule_path.read_text(encoding="utf-8") == schedule_text
+    assert schedule_main.read_text(encoding="utf-8") == schedule_text
     assert "CloudSentry proposal: opt-i3-resize" in resize_text
     assert "Action: resize i-prd-013 to m5.large" in resize_text
     assert 'instance_type = "m5.large"' in resize_text
-    assert resize_path.read_text(encoding="utf-8") == resize_text
+    assert resize_main.read_text(encoding="utf-8") == resize_text
+
+
+def test_versioned_artifact_records_commit_metadata(tmp_path: Path) -> None:
+    proposal = _proposal(
+        "opt-i4",
+        "find-i4",
+        "i-dev-026",
+        "development_scheduling",
+        ["schedule i-dev-026 weekdays-09-17"],
+    )
+
+    artifact = write_change(proposal, root=tmp_path)
+    directory = Path(artifact.path)
+    commit = json.loads((directory / "commit.json").read_text(encoding="utf-8"))
+
+    assert directory.is_dir()
+    assert (directory / "main.tf").exists()
+    assert artifact.hash == commit["hash"]
+    assert artifact.hash.startswith(directory.name)
+    assert commit["proposal_id"] == "opt-i4"
+    assert commit["files"] == ["main.tf"]
+    assert commit["review_path"] == artifact.path
+    assert "created_at" in commit
+    assert set(directory.iterdir()) >= {directory / "main.tf", directory / "commit.json"}
 
 
 def test_execute_stores_the_artifact_path(
@@ -97,11 +124,16 @@ def test_execute_stores_the_artifact_path(
 
     assert run is not None
     assert run.artifact_path is not None
+    assert run.artifact_hash is not None
+    assert run.artifact_created_at is not None
     path = Path(run.artifact_path)
-    assert path.exists()
-    text = path.read_text(encoding="utf-8")
+    assert path.is_dir()
+    text = (path / "main.tf").read_text(encoding="utf-8")
+    commit = json.loads((path / "commit.json").read_text(encoding="utf-8"))
     assert "CloudSentry proposal: opt-i3" in text
     assert "Action: schedule i-dev-026 weekdays-09-17" in text
+    assert commit["hash"] == run.artifact_hash
+    assert commit["review_path"] == run.artifact_path
 
 
 def _proposal(
