@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from pathlib import Path
 from urllib.parse import urlparse
 
 import pytest
@@ -84,8 +85,12 @@ def test_each_mvp_plan_action_applies_through_the_adapter(adapter: SimulatorAppl
 
 
 def test_adapter_failures_mark_the_execution_run_failed(
-    session: Session, adapter: SimulatorApplyAdapter
+    session: Session,
+    adapter: SimulatorApplyAdapter,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setenv("TERRAFORM_CHANGES_DIR", str(tmp_path))
     session.add(
         FindingRow(
             finding_id="find-i2",

@@ -1,5 +1,6 @@
 from collections.abc import Iterator
 from datetime import datetime, timezone
+from pathlib import Path
 
 import pytest
 from sqlalchemy import create_engine
@@ -62,7 +63,10 @@ def test_run_transition_table(current: ExecutionStatus, target: ExecutionStatus)
         require_run_transition(current, target)
 
 
-def test_execution_run_is_created_and_reaches_terminal_states(session: Session) -> None:
+def test_execution_run_is_created_and_reaches_terminal_states(
+    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TERRAFORM_CHANGES_DIR", str(tmp_path))
     session.add(
         FindingRow(
             finding_id="find-i1",

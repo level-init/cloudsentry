@@ -224,6 +224,7 @@ class ExecutionRunRow(Base):
     rollback_plan: Mapped[list] = mapped_column(JSONB, nullable=False)
     rollback_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     rolled_back_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    artifact_path: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 class VerificationResultRow(Base):

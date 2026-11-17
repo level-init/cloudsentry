@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -190,7 +191,10 @@ def test_approve_and_reject_store_the_actor_and_reason(session: Session) -> None
     assert repository.get("opt-g9-prod").approval_status == ApprovalStatus.approved
 
 
-def test_execute_waits_for_approval(session: Session) -> None:
+def test_execute_waits_for_approval(
+    session: Session, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("TERRAFORM_CHANGES_DIR", str(tmp_path))
     _seed(session)
     client = _client(session)
 
@@ -228,6 +232,9 @@ def test_execute_waits_for_approval(session: Session) -> None:
     assert run.json()["plan_snapshot"] == ["stop i-g9-dev"]
     assert run.json()["rollback_plan"] == ["start i-g9-dev"]
     assert run.json()["finished_at"] is None
+    assert run.json()["artifact_path"] is not None
+    assert "opt-g9-dev" in run.json()["artifact_path"]
+    assert Path(run.json()["artifact_path"]).exists()
     assert missing_run.status_code == 404
 
 

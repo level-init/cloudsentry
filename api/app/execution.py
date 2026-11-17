@@ -70,6 +70,7 @@ class ExecutionRun(BaseModel):
     rollback_plan: list[str] = Field(min_length=1)
     rollback_reason: str | None = None
     rolled_back_by: str | None = None
+    artifact_path: str | None = None
 
 
 class VerificationResult(BaseModel):
