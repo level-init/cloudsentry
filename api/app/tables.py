@@ -225,6 +225,10 @@ class ExecutionRunRow(Base):
     rollback_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     rolled_back_by: Mapped[str | None] = mapped_column(String, nullable=True)
     artifact_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    artifact_hash: Mapped[str | None] = mapped_column(String, nullable=True)
+    artifact_created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
 
 class VerificationResultRow(Base):
