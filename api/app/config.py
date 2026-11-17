@@ -6,6 +6,7 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql://cloudsentry:cloudsentry@localhost:5432/cloudsentry"
     simulator_base_url: str = "http://127.0.0.1:8001"
+    terraform_changes_dir: str = "terraform/changes"
 
 
 def get_settings() -> Settings:

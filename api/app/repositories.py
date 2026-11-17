@@ -47,6 +47,7 @@ from app.tables import (
     ResourceRow,
     RiskAssessmentRow,
 )
+from app.terraform_gen import write_change
 
 
 class ResourceRepository:
@@ -751,6 +752,7 @@ class ExecutionRunRepository:
             rollback_plan=list(proposal.rollback_plan),
             rollback_reason=None,
             rolled_back_by=None,
+            artifact_path=write_change(proposal),
         )
         self.session.add(row)
         self.session.flush()
@@ -819,6 +821,7 @@ def _execution_from_row(row: ExecutionRunRow) -> ExecutionRun:
         rollback_plan=list(row.rollback_plan),
         rollback_reason=row.rollback_reason,
         rolled_back_by=row.rolled_back_by,
+        artifact_path=row.artifact_path,
     )
 
 
