@@ -229,6 +229,7 @@ class ExecutionRunRow(Base):
     artifact_created_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    applied_action_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
 
 
 class VerificationResultRow(Base):

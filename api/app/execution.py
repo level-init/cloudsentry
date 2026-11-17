@@ -73,6 +73,7 @@ class ExecutionRun(BaseModel):
     artifact_path: str | None = None
     artifact_hash: str | None = None
     artifact_created_at: datetime | None = None
+    applied_action_ids: list[str] = Field(default_factory=list)
 
 
 class VerificationResult(BaseModel):

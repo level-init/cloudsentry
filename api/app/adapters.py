@@ -240,11 +240,69 @@ def apply_approved_plan(
         raise ApplyError(f"execution {run.execution_id} is {run.status.value}")
 
     apply_adapter = adapter if adapter is not None else SimulatorApplyAdapter()
+    action_ids: list[str] = []
     for action in run.plan_snapshot:
-        apply_action_to_run(session, run.execution_id, action, apply_adapter)
+        result = apply_action_to_run(session, run.execution_id, action, apply_adapter)
+        if result.changed and result.action_id:
+            action_ids.append(result.action_id)
+    runs.set_applied_action_ids(run.execution_id, action_ids)
     finished = runs.update_status(run.execution_id, ExecutionStatus.succeeded)
     if finished is None:
         raise ApplyError(f"execution {run.execution_id} was not found after apply")
+    return finished
+
+
+def rollback_execution(
+    session,
+    proposal_id: str,
+    *,
+    actor: str,
+    reason: str,
+    adapter: CloudApplyAdapter | None = None,
+):
+    """Reverse a succeeded apply through the simulator and audit who rolled it back.
+
+    Prefers the stored simulator action ids in reverse order. When none were
+    recorded, applies the stored rollback_plan lines instead. Marks the run
+    rolled_back with the actor and reason.
+    """
+    from app.proposals import ExecutionStatus
+    from app.repositories import ExecutionRunRepository
+
+    name = actor.strip()
+    why = reason.strip()
+    if not name or not why:
+        raise ApplyError("rollback requires an actor and a reason")
+    runs = ExecutionRunRepository(session)
+    run = runs.for_proposal(proposal_id)
+    if run is None:
+        raise ApplyError(f"execution for {proposal_id} not found")
+    if run.status == ExecutionStatus.rolled_back:
+        return run
+    if run.status != ExecutionStatus.succeeded:
+        raise ApplyError(f"execution {run.execution_id} must be succeeded to roll back")
+
+    apply_adapter = adapter if adapter is not None else SimulatorApplyAdapter()
+    try:
+        if run.applied_action_ids:
+            for action_id in reversed(run.applied_action_ids):
+                apply_adapter.rollback(action_id)
+        else:
+            for action in run.rollback_plan:
+                apply_plan_action(apply_adapter, action)
+    except ApplyError:
+        raise
+    except Exception as exc:
+        raise ApplyError(str(exc)) from exc
+
+    finished = runs.update_status(
+        run.execution_id,
+        ExecutionStatus.rolled_back,
+        rolled_back_by=name,
+        rollback_reason=why,
+    )
+    if finished is None:
+        raise ApplyError(f"execution {run.execution_id} was not found after rollback")
     return finished
 
 
