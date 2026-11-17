@@ -22,7 +22,7 @@ OPENAPI_TAGS = [
     },
     {
         "name": "executions",
-        "description": "Execution runs for approved proposals.",
+        "description": "Execution runs and append-only apply/rollback audit.",
     },
     {
         "name": "notifications",

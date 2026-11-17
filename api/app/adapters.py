@@ -56,9 +56,17 @@ class SimulatorApplyAdapter:
         base_url: str | None = None,
         *,
         request: Requester | None = None,
+        mutate_token: str | None = None,
     ) -> None:
-        self.base_url = (base_url or get_settings().simulator_base_url).rstrip("/")
-        self._request = request or _http_request
+        settings = get_settings()
+        self.base_url = (base_url or settings.simulator_base_url).rstrip("/")
+        token = (settings.simulator_mutate_token if mutate_token is None else mutate_token).strip()
+        if request is not None:
+            self._request = request
+        else:
+            self._request = lambda method, url, body: _http_request(
+                method, url, body, token or None
+            )
 
     def stop(self, resource_id: str) -> MutationResult:
         current = self._resource(resource_id)
@@ -220,6 +228,7 @@ def apply_approved_plan(
     individual steps safe to repeat; the normal path short-circuits when the
     run is already succeeded.
     """
+    from app.execution import ExecutionEventType
     from app.proposals import ApprovalStatus, ExecutionStatus
     from app.repositories import (
         ExecutionRunRepository,
@@ -264,9 +273,20 @@ def apply_approved_plan(
         if result.changed and result.action_id:
             action_ids.append(result.action_id)
     runs.set_applied_action_ids(run.execution_id, action_ids)
+    prior = runs.get(run.execution_id)
+    from_status = ExecutionStatus.running if prior is None else prior.status
     finished = runs.update_status(run.execution_id, ExecutionStatus.succeeded)
     if finished is None:
         raise ApplyError(f"execution {run.execution_id} was not found after apply")
+    runs.append_event(
+        execution_id=finished.execution_id,
+        proposal_id=finished.proposal_id,
+        event_type=ExecutionEventType.apply,
+        actor=name,
+        reason="applied approved plan",
+        from_status=from_status,
+        to_status=ExecutionStatus.succeeded,
+    )
     return finished
 
 
@@ -284,6 +304,7 @@ def rollback_execution(
     recorded, applies the stored rollback_plan lines instead. Marks the run
     rolled_back with the actor and reason.
     """
+    from app.execution import ExecutionEventType
     from app.proposals import ExecutionStatus
     from app.repositories import ExecutionRunRepository
 
@@ -321,6 +342,15 @@ def rollback_execution(
     )
     if finished is None:
         raise ApplyError(f"execution {run.execution_id} was not found after rollback")
+    runs.append_event(
+        execution_id=finished.execution_id,
+        proposal_id=finished.proposal_id,
+        event_type=ExecutionEventType.rollback,
+        actor=name,
+        reason=why,
+        from_status=ExecutionStatus.succeeded,
+        to_status=ExecutionStatus.rolled_back,
+    )
     return finished
 
 
@@ -412,11 +442,15 @@ def _unchanged(action: str, resource_id: str, resource: dict | None) -> Mutation
     )
 
 
-def _http_request(method: str, url: str, body: dict | None) -> tuple[int, object]:
+def _http_request(
+    method: str, url: str, body: dict | None, token: str | None = None
+) -> tuple[int, object]:
     data = None if body is None else json.dumps(body).encode()
     headers = {"Accept": "application/json"}
     if body is not None:
         headers["Content-Type"] = "application/json"
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
     request = Request(url, data=data, method=method, headers=headers)
     try:
         with urlopen(request, timeout=30) as response:

@@ -57,6 +57,11 @@ class VerificationOutcome(StrEnum):
     inconclusive = "inconclusive"
 
 
+class ExecutionEventType(StrEnum):
+    apply = "apply"
+    rollback = "rollback"
+
+
 class ExecutionRun(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -90,6 +95,21 @@ class DryRunResult(BaseModel):
     artifact_hash: str = Field(min_length=1)
     artifact_created_at: datetime
     dry_run: bool = True
+
+
+class ExecutionEvent(BaseModel):
+    """One append-only apply or rollback audit row."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    execution_id: str = Field(min_length=1)
+    proposal_id: str = Field(min_length=1)
+    event_type: ExecutionEventType
+    actor: str = Field(min_length=1)
+    reason: str = Field(min_length=1)
+    occurred_at: datetime
+    from_status: ExecutionStatus
+    to_status: ExecutionStatus
 
 
 class VerificationResult(BaseModel):
