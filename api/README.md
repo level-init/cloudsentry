@@ -65,9 +65,13 @@ curl -s 'localhost:8000/notifications?owner=payments&team=payments'
 
 `POST /proposals/{id}/execute` queues an approved proposal and creates an `ExecutionRun` with a snapshot of the plan and rollback. Send the actor in the `X-Actor` header. It does not change the simulator. A pending, rejected, or cancelled proposal returns 409, including a proposal labeled `SAFE_AUTOMATION`. An allow policy does not skip approval. A prohibit policy returns 409 even when the stored status is already approved. Queueing, running, or marking success through the status update is refused until the proposal is approved. A second execute on the same proposal reuses the same run.
 
+`POST /proposals/{id}/execute?dry_run=true` is a preview. It still requires approval and a policy pass. It checks that proposal resources exist, parses the plan lines, and writes the Terraform review artifact. It does not create an `ExecutionRun`, does not change `execution_status`, and does not call mutate APIs. The response is a `DryRunResult` with the plan snapshot and artifact path.
+
 A run moves `queued` → `running` → `succeeded` | `failed` | `rolled_back`. A queued run may also fail. A succeeded run may still roll back. Terminal states set `finished_at`. Queuing also writes a versioned fake-repo change under `TERRAFORM_CHANGES_DIR` (default `terraform/changes/<proposal_id>/<hash12>/`) with `main.tf` and `commit.json`. The run stores `artifact_path`, `artifact_hash`, and `artifact_created_at`. Each generated file comments the proposal id. CloudSentry does not run Terraform against AWS and does not open a real GitHub PR. `GET /executions/{id}` returns the run, including that review path. The id is `execution-{proposal_id}`. See [terraform/README.md](../terraform/README.md).
 
 ```bash
+curl -s -X POST 'localhost:8000/proposals/proposal-idle_compute-i-dev-062/execute?dry_run=true' \
+  -H 'X-Actor: ada'
 curl -s -X POST localhost:8000/proposals/proposal-idle_compute-i-dev-062/execute \
   -H 'X-Actor: ada'
 curl -s localhost:8000/executions/execution-proposal-idle_compute-i-dev-062
@@ -130,7 +134,7 @@ On a fresh March 2026 ingest those totals are development `111111111111` 428264 
 
 `app/execution.py` defines `ExecutionRun`, `VerificationResult`, and `RealizedSavings`. Each record carries `proposal_id`. A run stores the actor, plan snapshot, timestamps, and rollback metadata. Queuing an approved proposal creates the run and keeps the proposal `execution_status` in sync as the run moves. A verification result records predicted savings, realized savings, operational impact, and a status of `success`, `partial`, `rollback`, or `inconclusive`.
 
-`app/adapters.py` maps plan lines onto the simulator mutate API: `stop`, `start`, `resize … to …`, `schedule …`, `delete …`, and `transition … to …`. The adapter talks to `SIMULATOR_BASE_URL` over HTTP and does not import the simulator package. Calls that would no-op (already stopped, already the target sku, and so on) return `changed=false` without posting. `apply_approved_plan` runs every plan step for an approved proposal, re-checks prohibit policies, stores changed action ids on the run, and marks the `ExecutionRun` succeeded or failed. `rollback_execution` reverses those action ids when present, otherwise the rollback plan lines, then marks the run `rolled_back`.
+`app/adapters.py` maps plan lines onto the simulator mutate API: `stop`, `start`, `resize … to …`, `schedule …`, `delete …`, and `transition … to …`. The adapter talks to `SIMULATOR_BASE_URL` over HTTP and does not import the simulator package. Calls that would no-op (already stopped, already the target sku, and so on) return `changed=false` without posting. `apply_approved_plan` runs every plan step for an approved proposal, re-checks prohibit policies, stores changed action ids on the run, and marks the `ExecutionRun` succeeded or failed. `rollback_execution` reverses those action ids when present, otherwise the rollback plan lines, then marks the run `rolled_back`. `dry_run_execution` validates preconditions and writes the IaC artifact without mutating or queuing.
 
 ## Migrations
 

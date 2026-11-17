@@ -10,9 +10,14 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.orm import Session
 
-from app.adapters import ApplyError, apply_approved_plan, rollback_execution
+from app.adapters import (
+    ApplyError,
+    apply_approved_plan,
+    dry_run_execution,
+    rollback_execution,
+)
 from app.db import get_session
-from app.execution import ExecutionRun
+from app.execution import DryRunResult, ExecutionRun
 from app.proposals import (
     ApprovalDecision,
     ApprovalStatus,
@@ -127,7 +132,7 @@ def reject_proposal(
 
 @router.post(
     "/{proposal_id}/execute",
-    response_model=OptimizationProposal,
+    response_model=OptimizationProposal | DryRunResult,
     summary="Queue an approved proposal",
     description=(
         "Accepts an approved proposal into the execution queue and creates an "
@@ -135,17 +140,29 @@ def reject_proposal(
         "Send the actor in the X-Actor header. "
         "A pending, rejected, or cancelled proposal is refused, including "
         "SAFE_AUTOMATION. A prohibit policy is refused. "
-        "This does not change the simulator."
+        "This does not change the simulator. "
+        "Set dry_run=true to preview only: validate preconditions, write the "
+        "IaC artifact, and leave execution_status unchanged. Dry-run still "
+        "requires approval and does not call mutate APIs."
     ),
 )
 def execute_proposal(
     proposal_id: str,
     x_actor: Annotated[str, Header(alias="X-Actor")],
+    dry_run: bool = Query(False),
     session: Session = Depends(get_session),
-) -> OptimizationProposal:
+) -> OptimizationProposal | DryRunResult:
     name = x_actor.strip()
     if not name:
         raise HTTPException(status_code=422, detail="X-Actor is required")
+    if dry_run:
+        try:
+            return dry_run_execution(session, proposal_id, actor=name)
+        except ApplyError as exc:
+            detail = str(exc)
+            if detail.endswith("not found"):
+                raise HTTPException(status_code=404, detail=detail) from exc
+            raise HTTPException(status_code=409, detail=detail) from exc
     try:
         updated = ProposalRepository(session).begin_execution(proposal_id, actor=name)
     except ValueError as exc:

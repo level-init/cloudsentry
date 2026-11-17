@@ -47,7 +47,9 @@ def test_openapi_lists_proposal_routes() -> None:
     assert "X-Actor" in {item["name"] for item in reject["parameters"]}
     execute = schema["paths"]["/proposals/{proposal_id}/execute"]["post"]
     assert execute["tags"] == ["proposals"]
-    assert "X-Actor" in {item["name"] for item in execute["parameters"]}
+    execute_params = {item["name"] for item in execute["parameters"]}
+    assert "X-Actor" in execute_params
+    assert "dry_run" in execute_params
     audit = schema["paths"]["/proposals/{proposal_id}/audit"]
     assert set(audit) == {"get"}
     assert audit["get"]["tags"] == ["proposals"]

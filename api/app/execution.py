@@ -76,6 +76,22 @@ class ExecutionRun(BaseModel):
     applied_action_ids: list[str] = Field(default_factory=list)
 
 
+class DryRunResult(BaseModel):
+    """Preview of an approved plan: IaC artifact and precondition check, no mutate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    proposal_id: str = Field(min_length=1)
+    actor: str = Field(min_length=1)
+    plan_snapshot: list[str] = Field(min_length=1)
+    rollback_plan: list[str] = Field(min_length=1)
+    preconditions: list[str] = Field(min_length=1)
+    artifact_path: str = Field(min_length=1)
+    artifact_hash: str = Field(min_length=1)
+    artifact_created_at: datetime
+    dry_run: bool = True
+
+
 class VerificationResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
