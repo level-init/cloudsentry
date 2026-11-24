@@ -1,6 +1,5 @@
 from collections.abc import Iterator
 from pathlib import Path
-from urllib.parse import urlparse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -19,7 +18,7 @@ from app.repositories import ExecutionRunRepository, PolicyRepository, ProposalR
 from app.schemas import Policy, Resource
 from app.tables import FindingRow
 from simulator.main import create_app as create_simulator
-from tests.support import ensure_resource
+from tests.support import ensure_resource, simulator_request
 
 
 @pytest.fixture
@@ -43,7 +42,7 @@ def session() -> Iterator[Session]:
 @pytest.fixture
 def adapter() -> SimulatorApplyAdapter:
     client = TestClient(create_simulator())
-    return SimulatorApplyAdapter(base_url="http://simulator", request=_client_request(client))
+    return SimulatorApplyAdapter(base_url="http://simulator", request=simulator_request(client))
 
 
 def test_policy_change_after_approve_blocks_apply_without_sim_change(
@@ -252,17 +251,3 @@ def _api_client(session: Session) -> TestClient:
 
     app.dependency_overrides[get_session] = override
     return TestClient(app)
-
-
-def _client_request(client: TestClient):
-    def request(method: str, url: str, body: dict | None) -> tuple[int, object]:
-        path = urlparse(url).path
-        if method == "GET":
-            response = client.get(path)
-        else:
-            response = client.request(method, path, json=body)
-        if not response.content:
-            return response.status_code, None
-        return response.status_code, response.json()
-
-    return request

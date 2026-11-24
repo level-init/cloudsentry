@@ -267,6 +267,8 @@ class VerificationResultRow(Base):
     predicted_monthly_savings: Mapped[float] = mapped_column(Float, nullable=False)
     realized_monthly_savings: Mapped[float] = mapped_column(Float, nullable=False)
     operational_impact: Mapped[str] = mapped_column(Text, nullable=False)
+    observation_window: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    post_change: Mapped[list | None] = mapped_column(JSONB, nullable=True)
 
 
 class RealizedSavingsRow(Base):

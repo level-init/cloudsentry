@@ -15,6 +15,9 @@ from app.execution import (
     ExecutionEvent,
     ExecutionEventType,
     ExecutionRun,
+    ObservationWindow,
+    ResourceBaseline,
+    VerificationResult,
     is_terminal,
     require_run_transition,
 )
@@ -54,6 +57,7 @@ from app.tables import (
     ProposalRow,
     ResourceRow,
     RiskAssessmentRow,
+    VerificationResultRow,
 )
 from app.terraform_gen import write_change
 
@@ -877,8 +881,83 @@ class ExecutionRunRepository:
         return [_execution_event_from_row(row) for row in rows]
 
 
+class VerificationResultRepository:
+    def __init__(self, session: Session) -> None:
+        self.session = session
+
+    def create(self, result: VerificationResult) -> VerificationResult:
+        existing = self.get(result.verification_id)
+        if existing is not None:
+            return existing
+        self.session.add(
+            VerificationResultRow(
+                verification_id=result.verification_id,
+                proposal_id=result.proposal_id,
+                execution_id=result.execution_id,
+                status=result.status.value,
+                predicted_monthly_savings=result.predicted_monthly_savings,
+                realized_monthly_savings=result.realized_monthly_savings,
+                operational_impact=result.operational_impact,
+                observation_window=(
+                    None
+                    if result.observation_window is None
+                    else result.observation_window.model_dump(mode="json")
+                ),
+                post_change=(
+                    None
+                    if result.post_change is None
+                    else [item.model_dump(mode="json") for item in result.post_change]
+                ),
+            )
+        )
+        self.session.flush()
+        return result
+
+    def get(self, verification_id: str) -> VerificationResult | None:
+        row = self.session.get(VerificationResultRow, verification_id)
+        if row is None:
+            return None
+        return _verification_from_row(row)
+
+    def for_execution(self, execution_id: str) -> VerificationResult | None:
+        row = self.session.scalar(
+            select(VerificationResultRow)
+            .where(VerificationResultRow.execution_id == execution_id)
+            .order_by(VerificationResultRow.verification_id)
+        )
+        if row is None:
+            return None
+        return _verification_from_row(row)
+
+
 def _execution_id(proposal_id: str) -> str:
     return f"execution-{proposal_id}"
+
+
+def _verification_id(execution_id: str) -> str:
+    return f"verification-{execution_id}"
+
+
+def _verification_from_row(row: VerificationResultRow) -> VerificationResult:
+    return VerificationResult(
+        verification_id=row.verification_id,
+        proposal_id=row.proposal_id,
+        execution_id=row.execution_id,
+        status=row.status,
+        predicted_monthly_savings=row.predicted_monthly_savings,
+        realized_monthly_savings=row.realized_monthly_savings,
+        operational_impact=row.operational_impact,
+        observation_window=(
+            None
+            if row.observation_window is None
+            else ObservationWindow.model_validate(row.observation_window)
+        ),
+        post_change=(
+            None
+            if row.post_change is None
+            else [ResourceBaseline.model_validate(item) for item in row.post_change]
+        ),
+    )
 
 
 def _execution_from_row(row: ExecutionRunRow) -> ExecutionRun:

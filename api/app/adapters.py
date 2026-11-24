@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Protocol
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 from app.config import get_settings
@@ -22,6 +23,8 @@ from app.execution import (
     ExecutionBaseline,
     ObservationWindow,
     ResourceBaseline,
+    VerificationOutcome,
+    VerificationResult,
 )
 
 Requester = Callable[[str, str, dict | None], tuple[int, object]]
@@ -140,8 +143,31 @@ class SimulatorApplyAdapter:
     def rollback(self, action_id: str) -> MutationResult:
         return self._mutate("POST", f"/actions/{action_id}/rollback")
 
-    def read_costs(self, resource_id: str) -> dict:
-        status, body = self._request("GET", f"{self.base_url}/resources/{resource_id}/costs", None)
+    def read_clock(self) -> datetime:
+        status, body = self._request("GET", f"{self.base_url}/clock", None)
+        if status >= 400 or not isinstance(body, dict) or "now" not in body:
+            raise ApplyError(_detail(body, "could not read simulator clock"))
+        return _parse_timestamp(body["now"])
+
+    def advance_days(self, days: int) -> datetime:
+        status, body = self._request("POST", f"{self.base_url}/clock/advance", {"days": days})
+        if status >= 400 or not isinstance(body, dict) or "now" not in body:
+            raise ApplyError(_detail(body, "could not advance simulator clock"))
+        return _parse_timestamp(body["now"])
+
+    def read_costs(
+        self,
+        resource_id: str,
+        *,
+        year: int | None = None,
+        month: int | None = None,
+    ) -> dict:
+        query = ""
+        if year is not None and month is not None:
+            query = "?" + urlencode({"year": year, "month": month})
+        status, body = self._request(
+            "GET", f"{self.base_url}/resources/{resource_id}/costs{query}", None
+        )
         if status == 404:
             raise ApplyError(f"baseline cannot be captured: resource {resource_id} is missing")
         if status >= 400:
@@ -150,9 +176,24 @@ class SimulatorApplyAdapter:
             raise ApplyError(f"baseline cannot be captured for {resource_id}")
         return body
 
-    def read_metrics(self, resource_id: str) -> list[dict]:
+    def read_metrics(
+        self,
+        resource_id: str,
+        *,
+        name: str | None = None,
+        start: datetime | None = None,
+        end: datetime | None = None,
+    ) -> list[dict]:
+        params: dict[str, str] = {}
+        if name is not None:
+            params["name"] = name
+        if start is not None:
+            params["start"] = _isoformat(start)
+        if end is not None:
+            params["end"] = _isoformat(end)
+        query = "" if not params else "?" + urlencode(params)
         status, body = self._request(
-            "GET", f"{self.base_url}/resources/{resource_id}/metrics", None
+            "GET", f"{self.base_url}/resources/{resource_id}/metrics{query}", None
         )
         if status == 404:
             raise ApplyError(f"baseline cannot be captured: resource {resource_id} is missing")
@@ -273,6 +314,50 @@ def _resource_baseline(adapter: SimulatorApplyAdapter, resource_id: str) -> Reso
         raise ApplyError(f"baseline cannot be captured: cost total missing for {resource_id}")
     cost_window = _month_window(year, month)
     samples = [sample for sample in adapter.read_metrics(resource_id) if sample.get("name") == _CPU]
+    return _resource_from_samples(resource_id, amount, cost_window, samples)
+
+
+def _post_change_resource(
+    adapter: SimulatorApplyAdapter,
+    resource_id: str,
+    observation: ObservationWindow,
+) -> ResourceBaseline:
+    cost_window = ObservationWindow(
+        start=observation.start,
+        end=observation.end,
+        grain="day",
+        year=observation.start.year,
+        month=observation.start.month,
+    )
+    # A delete can remove the resource; record zero cost and empty metrics.
+    if adapter._resource(resource_id) is None:
+        return _resource_from_samples(resource_id, 0, cost_window, [])
+    costs = adapter.read_costs(
+        resource_id,
+        year=observation.start.year,
+        month=observation.start.month,
+    )
+    amount = costs.get("total_cents")
+    if not isinstance(amount, int) or amount < 0:
+        raise ApplyError(f"observation cannot be captured: cost total missing for {resource_id}")
+    try:
+        samples = adapter.read_metrics(
+            resource_id,
+            name=_CPU,
+            start=observation.start,
+            end=observation.end,
+        )
+    except ApplyError:
+        samples = []
+    return _resource_from_samples(resource_id, amount, cost_window, samples)
+
+
+def _resource_from_samples(
+    resource_id: str,
+    amount_cents: int,
+    cost_window: ObservationWindow,
+    samples: list[dict],
+) -> ResourceBaseline:
     metric_window = _metric_window(samples, cost_window)
     values = [
         float(sample["value"])
@@ -285,7 +370,7 @@ def _resource_baseline(adapter: SimulatorApplyAdapter, resource_id: str) -> Reso
     return ResourceBaseline(
         resource_id=resource_id,
         cost=BaselineCost(
-            amount_cents=amount,
+            amount_cents=amount_cents,
             currency="USD",
             window=cost_window,
         ),
@@ -318,14 +403,12 @@ def _metric_window(
     timestamps: list[datetime] = []
     for sample in samples:
         raw = sample.get("timestamp")
-        if isinstance(raw, datetime):
-            timestamps.append(raw if raw.tzinfo is not None else raw.replace(tzinfo=timezone.utc))
+        if raw is None:
             continue
-        if isinstance(raw, str) and raw.strip():
-            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
-            timestamps.append(
-                parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
-            )
+        try:
+            timestamps.append(_parse_timestamp(raw))
+        except (ApplyError, TypeError, ValueError):
+            continue
     if not timestamps:
         return ObservationWindow(
             start=fallback.start,
@@ -337,6 +420,21 @@ def _metric_window(
     start = min(timestamps)
     end = max(timestamps) + timedelta(hours=1)
     return ObservationWindow(start=start, end=end, grain="hour")
+
+
+def _parse_timestamp(value: object) -> datetime:
+    if isinstance(value, datetime):
+        return value if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str) and value.strip():
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+    raise ApplyError("could not parse simulator timestamp")
+
+
+def _isoformat(value: datetime) -> str:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def apply_action_to_run(
@@ -445,7 +543,62 @@ def apply_approved_plan(
         from_status=from_status,
         to_status=ExecutionStatus.succeeded,
     )
+    observe_after_apply(session, finished, proposal, apply_adapter)
     return finished
+
+
+def observe_after_apply(
+    session,
+    run,
+    proposal,
+    adapter: SimulatorApplyAdapter,
+    *,
+    days: int | None = None,
+) -> VerificationResult:
+    """Advance the simulator clock and record the post-change observation window.
+
+    Uses D12 clock advance so an N-day window completes in test time. Pulls
+    post-change costs and cpu_percent metrics for that window and stores them on
+    a VerificationResult. Savings comparison stays inconclusive until a later
+    ticket. Idempotent when a verification already exists for the run.
+    """
+    from app.repositories import VerificationResultRepository
+
+    results = VerificationResultRepository(session)
+    existing = results.for_execution(run.execution_id)
+    if existing is not None:
+        return existing
+
+    window_days = get_settings().observation_window_days if days is None else days
+    if window_days < 1:
+        raise ApplyError("observation window days must be at least 1")
+    window_start = adapter.read_clock()
+    window_end = adapter.advance_days(window_days)
+    observation = ObservationWindow(
+        start=window_start,
+        end=window_end,
+        grain="day",
+        year=window_start.year,
+        month=window_start.month,
+    )
+    post_change = [
+        _post_change_resource(adapter, resource_id, observation)
+        for resource_id in proposal.resource_ids
+    ]
+    result = VerificationResult(
+        verification_id=f"verification-{run.execution_id}",
+        proposal_id=run.proposal_id,
+        execution_id=run.execution_id,
+        status=VerificationOutcome.inconclusive,
+        predicted_monthly_savings=proposal.predicted_monthly_savings,
+        realized_monthly_savings=0.0,
+        operational_impact=(
+            f"observed {window_days} simulator day(s); savings comparison deferred"
+        ),
+        observation_window=observation,
+        post_change=post_change,
+    )
+    return results.create(result)
 
 
 def rollback_execution(

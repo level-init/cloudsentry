@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     # Optional bearer for a future authenticated simulator. Blank locally.
     simulator_mutate_token: str = ""
     terraform_changes_dir: str = "terraform/changes"
+    # Days to advance the simulator clock after apply for the observation window.
+    observation_window_days: int = 7
 
 
 def get_settings() -> Settings:

@@ -1,6 +1,5 @@
 from collections.abc import Iterator
 from pathlib import Path
-from urllib.parse import urlparse
 
 import pytest
 from fastapi.testclient import TestClient
@@ -18,6 +17,7 @@ from app.proposals import ApprovalStatus, ExecutionStatus, OptimizationProposal,
 from app.repositories import ExecutionRunRepository, ProposalRepository
 from app.tables import FindingRow
 from simulator.main import create_app
+from tests.support import simulator_request
 
 
 @pytest.fixture
@@ -41,7 +41,7 @@ def session() -> Iterator[Session]:
 @pytest.fixture
 def adapter() -> SimulatorApplyAdapter:
     client = TestClient(create_app())
-    return SimulatorApplyAdapter(base_url="http://simulator", request=_client_request(client))
+    return SimulatorApplyAdapter(base_url="http://simulator", request=simulator_request(client))
 
 
 def test_each_mvp_plan_action_applies_through_the_adapter(adapter: SimulatorApplyAdapter) -> None:
@@ -125,20 +125,6 @@ def test_adapter_failures_mark_the_execution_run_failed(
 def test_unsupported_plan_action_is_refused(adapter: SimulatorApplyAdapter) -> None:
     with pytest.raises(ApplyError, match="unsupported"):
         apply_plan_action(adapter, "expire snap-dev-007")
-
-
-def _client_request(client: TestClient):
-    def request(method: str, url: str, body: dict | None) -> tuple[int, object]:
-        path = urlparse(url).path
-        if method == "GET":
-            response = client.get(path)
-        else:
-            response = client.request(method, path, json=body)
-        if not response.content:
-            return response.status_code, None
-        return response.status_code, response.json()
-
-    return request
 
 
 def _proposal() -> OptimizationProposal:
