@@ -172,6 +172,8 @@ class VerificationResult(BaseModel):
     predicted_monthly_savings: float
     realized_monthly_savings: float
     operational_impact: str = Field(min_length=1)
+    observation_window: ObservationWindow | None = None
+    post_change: list[ResourceBaseline] | None = None
 
 
 class RealizedSavings(BaseModel):
