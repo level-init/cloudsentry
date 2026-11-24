@@ -62,6 +62,55 @@ class ExecutionEventType(StrEnum):
     rollback = "rollback"
 
 
+class ObservationWindow(BaseModel):
+    """Half-open observation window used for cost or metric baseline reads."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    start: datetime
+    end: datetime
+    grain: str = Field(min_length=1)
+    year: int | None = None
+    month: int | None = Field(default=None, ge=1, le=12)
+
+
+class BaselineCost(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    amount_cents: int = Field(ge=0)
+    currency: str = Field(default="USD", min_length=3, max_length=3)
+    window: ObservationWindow
+
+
+class BaselineMetric(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1)
+    unit: str = Field(min_length=1)
+    average: float | None = None
+    peak: float | None = None
+    sample_count: int = Field(ge=0)
+    window: ObservationWindow
+
+
+class ResourceBaseline(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    resource_id: str = Field(min_length=1)
+    cost: BaselineCost
+    metrics: list[BaselineMetric]
+
+
+class ExecutionBaseline(BaseModel):
+    """Immutable pre-change cost and ops snapshot captured before mutate."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    captured_at: datetime
+    source: str = Field(default="simulator", min_length=1)
+    resources: list[ResourceBaseline] = Field(min_length=1)
+
+
 class ExecutionRun(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -79,6 +128,7 @@ class ExecutionRun(BaseModel):
     artifact_hash: str | None = None
     artifact_created_at: datetime | None = None
     applied_action_ids: list[str] = Field(default_factory=list)
+    baseline: ExecutionBaseline | None = None
 
 
 class DryRunResult(BaseModel):

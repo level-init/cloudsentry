@@ -99,7 +99,7 @@ make lint
 make test
 ```
 
-`make lint` runs Ruff on `api`, `worker`, and `simulator`. `make test` runs pytest and discovers the tests in those packages. Frontend lint is separate and not part of these commands.
+`make lint` runs Ruff on `api`, `worker`, and `simulator`. `make test` runs pytest and discovers the tests in those packages. Frontend lint is separate and not part of these commands. Pytest uses `TEST_DATABASE_URL` when set, otherwise the same `DATABASE_URL` as the API and worker. Test sessions roll back, but committed inventory from ingest is still visible — seed with upsert (see `api/tests/support.py`) or point tests at a separate database.
 
 ## Pull request checks
 

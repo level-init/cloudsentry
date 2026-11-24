@@ -16,10 +16,11 @@ from app.adapters import (
 from app.db import get_session, sqlalchemy_database_url
 from app.main import create_app
 from app.proposals import ApprovalStatus, OptimizationProposal, RiskAssessment
-from app.repositories import ProposalRepository, ResourceRepository
+from app.repositories import ProposalRepository
 from app.schemas import Resource
 from app.tables import FindingRow
 from simulator.main import create_app as create_simulator
+from tests.support import ensure_resource
 
 
 @pytest.fixture
@@ -283,7 +284,6 @@ def _seed(
     actions: list[str],
     rollback: list[str],
 ) -> None:
-    resources = ResourceRepository(session)
     resource_type = "compute"
     if resource_id.startswith("vol-"):
         resource_type = "disk"
@@ -292,22 +292,21 @@ def _seed(
     environment = "development"
     if resource_id.startswith("i-prd") or resource_id.startswith("bucket-prd"):
         environment = "production"
-    resource = Resource(
-        resource_id=resource_id,
-        resource_type=resource_type,
-        account_id="111111111111" if environment == "development" else "333333333333",
-        environment=environment,
-        owner="payments",
-        team="payments",
-        business_criticality="low",
-        tags={"environment": environment, "owner": "payments", "team": "payments"},
-        sku="m5.large",
-        storage_class="standard" if resource_type == "object_storage" else None,
+    ensure_resource(
+        session,
+        Resource(
+            resource_id=resource_id,
+            resource_type=resource_type,
+            account_id="111111111111" if environment == "development" else "333333333333",
+            environment=environment,
+            owner="payments",
+            team="payments",
+            business_criticality="low",
+            tags={"environment": environment, "owner": "payments", "team": "payments"},
+            sku="m5.large",
+            storage_class="standard" if resource_type == "object_storage" else None,
+        ),
     )
-    if resources.get(resource_id) is None:
-        resources.create(resource)
-    else:
-        resources.upsert(resource)
     session.add(
         FindingRow(
             finding_id=finding_id,

@@ -9,6 +9,7 @@ from app.proposals import ApprovalStatus, ExecutionStatus, OptimizationProposal,
 from app.repositories import PolicyRepository, ProposalRepository, ResourceRepository
 from app.schemas import Resource
 from app.tables import FindingRow, PolicyRow
+from tests.support import ensure_resource
 
 
 @pytest.fixture
@@ -242,7 +243,7 @@ def test_seed_defaults_keeps_one_row_per_policy_name(session: Session) -> None:
 
 
 def test_prohibit_delete_production_database_blocks_execution(session: Session) -> None:
-    ResourceRepository(session).create(_resource("db-policy-prd", "production", "database"))
+    ensure_resource(session, _resource("db-policy-prd", "production", "database"))
     session.add(
         FindingRow(
             finding_id="find-delete-db",
@@ -281,7 +282,7 @@ def test_prohibit_delete_production_database_blocks_execution(session: Session) 
 
 
 def test_development_schedule_stays_approvable(session: Session) -> None:
-    ResourceRepository(session).create(_resource("i-policy-dev", "development", "compute"))
+    ensure_resource(session, _resource("i-policy-dev", "development", "compute"))
     session.add(
         FindingRow(
             finding_id="find-schedule",
@@ -317,8 +318,8 @@ def test_development_schedule_stays_approvable(session: Session) -> None:
 
 
 def test_unapproved_execution_is_refused_including_bypass_attempts(session: Session) -> None:
-    ResourceRepository(session).create(_resource("i-h3-dev", "development", "compute"))
-    ResourceRepository(session).create(_resource("db-h3-prd", "production", "database"))
+    ensure_resource(session, _resource("i-h3-dev", "development", "compute"))
+    ensure_resource(session, _resource("db-h3-prd", "production", "database"))
     session.add(
         FindingRow(
             finding_id="find-h3",

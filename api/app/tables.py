@@ -230,6 +230,7 @@ class ExecutionRunRow(Base):
         DateTime(timezone=True), nullable=True
     )
     applied_action_ids: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    baseline: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
 
 class ExecutionEventRow(Base):

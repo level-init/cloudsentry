@@ -11,6 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.approval import require_transition
 from app.execution import (
+    ExecutionBaseline,
     ExecutionEvent,
     ExecutionEventType,
     ExecutionRun,
@@ -764,8 +765,19 @@ class ExecutionRunRepository:
             artifact_hash=artifact.hash,
             artifact_created_at=artifact.created_at,
             applied_action_ids=[],
+            baseline=None,
         )
         self.session.add(row)
+        self.session.flush()
+        return _execution_from_row(row)
+
+    def set_baseline(self, execution_id: str, baseline: ExecutionBaseline) -> ExecutionRun | None:
+        row = self.session.get(ExecutionRunRow, execution_id)
+        if row is None:
+            return None
+        if row.baseline is not None:
+            return _execution_from_row(row)
+        row.baseline = baseline.model_dump(mode="json")
         self.session.flush()
         return _execution_from_row(row)
 
@@ -885,6 +897,7 @@ def _execution_from_row(row: ExecutionRunRow) -> ExecutionRun:
         artifact_hash=row.artifact_hash,
         artifact_created_at=row.artifact_created_at,
         applied_action_ids=list(row.applied_action_ids or []),
+        baseline=None if row.baseline is None else ExecutionBaseline.model_validate(row.baseline),
     )
 
 

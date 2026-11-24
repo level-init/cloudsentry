@@ -12,10 +12,11 @@ from app.adapters import SimulatorApplyAdapter, apply_approved_plan, rollback_ex
 from app.db import get_session, sqlalchemy_database_url
 from app.main import create_app
 from app.proposals import ApprovalStatus, OptimizationProposal, RiskAssessment
-from app.repositories import ExecutionRunRepository, ProposalRepository, ResourceRepository
+from app.repositories import ExecutionRunRepository, ProposalRepository
 from app.schemas import Resource
 from app.tables import ExecutionEventRow, FindingRow
 from simulator.main import create_app as create_simulator
+from tests.support import ensure_resource
 
 
 @pytest.fixture
@@ -124,22 +125,20 @@ def test_openapi_lists_execution_audit_route() -> None:
 
 
 def _seed_schedule(session: Session) -> None:
-    resources = ResourceRepository(session)
-    resource = Resource(
-        resource_id="i-dev-026",
-        resource_type="compute",
-        account_id="111111111111",
-        environment="development",
-        owner="payments",
-        team="payments",
-        business_criticality="low",
-        tags={"environment": "development", "owner": "payments", "team": "payments"},
-        sku="m5.large",
+    ensure_resource(
+        session,
+        Resource(
+            resource_id="i-dev-026",
+            resource_type="compute",
+            account_id="111111111111",
+            environment="development",
+            owner="payments",
+            team="payments",
+            business_criticality="low",
+            tags={"environment": "development", "owner": "payments", "team": "payments"},
+            sku="m5.large",
+        ),
     )
-    if resources.get("i-dev-026") is None:
-        resources.create(resource)
-    else:
-        resources.upsert(resource)
     session.add(
         FindingRow(
             finding_id="find-i8-schedule",

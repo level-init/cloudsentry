@@ -15,15 +15,11 @@ from app.adapters import (
 from app.db import get_session, sqlalchemy_database_url
 from app.main import create_app
 from app.proposals import ApprovalStatus, OptimizationProposal, RiskAssessment
-from app.repositories import (
-    ExecutionRunRepository,
-    PolicyRepository,
-    ProposalRepository,
-    ResourceRepository,
-)
+from app.repositories import ExecutionRunRepository, PolicyRepository, ProposalRepository
 from app.schemas import Policy, Resource
 from app.tables import FindingRow
 from simulator.main import create_app as create_simulator
+from tests.support import ensure_resource
 
 
 @pytest.fixture
@@ -104,21 +100,19 @@ def test_already_approved_prohibited_delete_cannot_mutate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("TERRAFORM_CHANGES_DIR", str(tmp_path))
-    resources = ResourceRepository(session)
-    resource = Resource(
-        resource_id="db-i9-prd",
-        resource_type="database",
-        account_id="111111111111",
-        environment="production",
-        owner="payments",
-        team="payments",
-        business_criticality="high",
-        tags={"environment": "production", "owner": "payments", "team": "payments"},
+    ensure_resource(
+        session,
+        Resource(
+            resource_id="db-i9-prd",
+            resource_type="database",
+            account_id="111111111111",
+            environment="production",
+            owner="payments",
+            team="payments",
+            business_criticality="high",
+            tags={"environment": "production", "owner": "payments", "team": "payments"},
+        ),
     )
-    if resources.get("db-i9-prd") is None:
-        resources.create(resource)
-    else:
-        resources.upsert(resource)
     session.add(
         FindingRow(
             finding_id="find-i9-delete",
@@ -200,22 +194,20 @@ def test_queued_run_still_blocked_when_policy_turns_prohibit(
 
 
 def _seed_schedule(session: Session) -> None:
-    resources = ResourceRepository(session)
-    resource = Resource(
-        resource_id="i-dev-026",
-        resource_type="compute",
-        account_id="111111111111",
-        environment="development",
-        owner="payments",
-        team="payments",
-        business_criticality="low",
-        tags={"environment": "development", "owner": "payments", "team": "payments"},
-        sku="m5.large",
+    ensure_resource(
+        session,
+        Resource(
+            resource_id="i-dev-026",
+            resource_type="compute",
+            account_id="111111111111",
+            environment="development",
+            owner="payments",
+            team="payments",
+            business_criticality="low",
+            tags={"environment": "development", "owner": "payments", "team": "payments"},
+            sku="m5.large",
+        ),
     )
-    if resources.get("i-dev-026") is None:
-        resources.create(resource)
-    else:
-        resources.upsert(resource)
     session.add(
         FindingRow(
             finding_id="find-i9-schedule",
