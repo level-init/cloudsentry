@@ -11,10 +11,11 @@ from app.adapters import ApplyError, SimulatorApplyAdapter, apply_approved_plan
 from app.db import get_session, sqlalchemy_database_url
 from app.main import create_app
 from app.proposals import OptimizationProposal, RiskAssessment
-from app.repositories import ProposalRepository, ResourceRepository
+from app.repositories import ProposalRepository
 from app.schemas import Resource
 from app.tables import FindingRow
 from simulator.main import create_app as create_simulator
+from tests.support import ensure_resource
 
 
 @pytest.fixture
@@ -83,12 +84,17 @@ def test_approved_dev_schedule_applies_to_the_simulator(
     assert approved.status_code == 200
     assert applied.status.value == "succeeded"
     assert applied.finished_at is not None
+    assert applied.baseline is not None
+    assert applied.baseline.resources[0].resource_id == "i-dev-026"
+    assert applied.baseline.resources[0].cost.window.grain == "day"
     assert adapter._resource("i-dev-026")["schedule"] == "weekdays-09-17"
     assert again.execution_id == applied.execution_id
     assert again.status.value == "succeeded"
+    assert again.baseline == applied.baseline
     assert via_http.status_code == 200
     assert via_http.json()["status"] == "succeeded"
     assert via_http.json()["execution_id"] == applied.execution_id
+    assert via_http.json()["baseline"] is not None
 
 
 def test_pending_proposal_cannot_apply(session: Session, adapter: SimulatorApplyAdapter) -> None:
@@ -108,22 +114,20 @@ def test_openapi_lists_apply_route() -> None:
 
 
 def _seed_schedule(session: Session) -> None:
-    resources = ResourceRepository(session)
-    resource = Resource(
-        resource_id="i-dev-026",
-        resource_type="compute",
-        account_id="111111111111",
-        environment="development",
-        owner="payments",
-        team="payments",
-        business_criticality="low",
-        tags={"environment": "development", "owner": "payments", "team": "payments"},
-        sku="m5.large",
+    ensure_resource(
+        session,
+        Resource(
+            resource_id="i-dev-026",
+            resource_type="compute",
+            account_id="111111111111",
+            environment="development",
+            owner="payments",
+            team="payments",
+            business_criticality="low",
+            tags={"environment": "development", "owner": "payments", "team": "payments"},
+            sku="m5.large",
+        ),
     )
-    if resources.get("i-dev-026") is None:
-        resources.create(resource)
-    else:
-        resources.upsert(resource)
     session.add(
         FindingRow(
             finding_id="find-i5-schedule",

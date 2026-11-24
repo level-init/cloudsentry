@@ -36,9 +36,11 @@ def list_execution_audit(
     summary="Get an execution run",
     description=(
         "The run linked to a proposal, including the plan snapshot, status, "
-        "rollback metadata, and the reviewable Terraform change path. "
+        "rollback metadata, the reviewable Terraform change path, and the "
+        "pre-change baseline when apply has captured one. "
         "artifact_path is the fake-repo directory under terraform/changes. "
         "artifact_hash and artifact_created_at are the commit-like metadata. "
+        "baseline holds cost and cpu_percent windows captured before mutate. "
         "A missing id returns 404."
     ),
 )

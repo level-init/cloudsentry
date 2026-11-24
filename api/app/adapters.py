@@ -8,15 +8,25 @@ ApplyError so a caller can mark the ExecutionRun failed.
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from typing import Protocol
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from app.config import get_settings
+from app.execution import (
+    BaselineCost,
+    BaselineMetric,
+    ExecutionBaseline,
+    ObservationWindow,
+    ResourceBaseline,
+)
 
 Requester = Callable[[str, str, dict | None], tuple[int, object]]
+
+_CPU = "cpu_percent"
 
 
 class ApplyError(ValueError):
@@ -130,6 +140,28 @@ class SimulatorApplyAdapter:
     def rollback(self, action_id: str) -> MutationResult:
         return self._mutate("POST", f"/actions/{action_id}/rollback")
 
+    def read_costs(self, resource_id: str) -> dict:
+        status, body = self._request("GET", f"{self.base_url}/resources/{resource_id}/costs", None)
+        if status == 404:
+            raise ApplyError(f"baseline cannot be captured: resource {resource_id} is missing")
+        if status >= 400:
+            raise ApplyError(_detail(body, f"baseline cannot be captured for {resource_id}"))
+        if not isinstance(body, dict):
+            raise ApplyError(f"baseline cannot be captured for {resource_id}")
+        return body
+
+    def read_metrics(self, resource_id: str) -> list[dict]:
+        status, body = self._request(
+            "GET", f"{self.base_url}/resources/{resource_id}/metrics", None
+        )
+        if status == 404:
+            raise ApplyError(f"baseline cannot be captured: resource {resource_id} is missing")
+        if status >= 400:
+            raise ApplyError(_detail(body, f"baseline cannot be captured for {resource_id}"))
+        if not isinstance(body, list):
+            raise ApplyError(f"baseline cannot be captured for {resource_id}")
+        return [item for item in body if isinstance(item, dict)]
+
     def _resource(self, resource_id: str) -> dict | None:
         status, body = self._request("GET", f"{self.base_url}/resources/{resource_id}", None)
         if status == 404:
@@ -204,6 +236,109 @@ def require_not_prohibited(session, proposal_id: str) -> None:
         raise PolicyProhibitedError(prohibited, proposal_id)
 
 
+def capture_pre_change_baseline(
+    adapter: SimulatorApplyAdapter,
+    resource_ids: Sequence[str],
+) -> ExecutionBaseline:
+    """Read cost and key metrics from the simulator before any mutate.
+
+    Fail closed when a proposal resource cannot be read. The cost window is the
+    simulator's latest observed calendar month. The metric window is the
+    simulator's default recent window (or the cost month when no samples exist).
+    """
+    ids = [resource_id.strip() for resource_id in resource_ids if resource_id.strip()]
+    if not ids:
+        raise ApplyError("baseline cannot be captured: no resources")
+    captured_at = datetime.now(timezone.utc)
+    resources: list[ResourceBaseline] = []
+    for resource_id in ids:
+        resources.append(_resource_baseline(adapter, resource_id))
+    return ExecutionBaseline(
+        captured_at=captured_at,
+        source="simulator",
+        resources=resources,
+    )
+
+
+def _resource_baseline(adapter: SimulatorApplyAdapter, resource_id: str) -> ResourceBaseline:
+    if adapter._resource(resource_id) is None:
+        raise ApplyError(f"baseline cannot be captured: resource {resource_id} is missing")
+    costs = adapter.read_costs(resource_id)
+    year = costs.get("year")
+    month = costs.get("month")
+    if not isinstance(year, int) or not isinstance(month, int):
+        raise ApplyError(f"baseline cannot be captured: cost window missing for {resource_id}")
+    amount = costs.get("total_cents")
+    if not isinstance(amount, int) or amount < 0:
+        raise ApplyError(f"baseline cannot be captured: cost total missing for {resource_id}")
+    cost_window = _month_window(year, month)
+    samples = [sample for sample in adapter.read_metrics(resource_id) if sample.get("name") == _CPU]
+    metric_window = _metric_window(samples, cost_window)
+    values = [
+        float(sample["value"])
+        for sample in samples
+        if isinstance(sample.get("value"), (int, float))
+    ]
+    unit = "percent"
+    if samples and isinstance(samples[0].get("unit"), str) and samples[0]["unit"].strip():
+        unit = samples[0]["unit"]
+    return ResourceBaseline(
+        resource_id=resource_id,
+        cost=BaselineCost(
+            amount_cents=amount,
+            currency="USD",
+            window=cost_window,
+        ),
+        metrics=[
+            BaselineMetric(
+                name=_CPU,
+                unit=unit,
+                average=None if not values else round(sum(values) / len(values), 2),
+                peak=None if not values else round(max(values), 2),
+                sample_count=len(values),
+                window=metric_window,
+            )
+        ],
+    )
+
+
+def _month_window(year: int, month: int) -> ObservationWindow:
+    start = datetime(year, month, 1, tzinfo=timezone.utc)
+    if month == 12:
+        end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        end = datetime(year, month + 1, 1, tzinfo=timezone.utc)
+    return ObservationWindow(start=start, end=end, grain="day", year=year, month=month)
+
+
+def _metric_window(
+    samples: list[dict],
+    fallback: ObservationWindow,
+) -> ObservationWindow:
+    timestamps: list[datetime] = []
+    for sample in samples:
+        raw = sample.get("timestamp")
+        if isinstance(raw, datetime):
+            timestamps.append(raw if raw.tzinfo is not None else raw.replace(tzinfo=timezone.utc))
+            continue
+        if isinstance(raw, str) and raw.strip():
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            timestamps.append(
+                parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+            )
+    if not timestamps:
+        return ObservationWindow(
+            start=fallback.start,
+            end=fallback.end,
+            grain="hour",
+            year=fallback.year,
+            month=fallback.month,
+        )
+    start = min(timestamps)
+    end = max(timestamps) + timedelta(hours=1)
+    return ObservationWindow(start=start, end=end, grain="hour")
+
+
 def apply_action_to_run(
     session,
     execution_id: str,
@@ -246,11 +381,13 @@ def apply_approved_plan(
     """Apply every plan step for an approved proposal to the simulator.
 
     Requires approval and a live policy pass at the execution boundary.
-    Creates a queued ExecutionRun when one does not exist yet. A succeeded run
-    is returned unchanged (idempotent re-entry). A failed or rolled_back run is
-    refused. Adapter no-ops make individual steps safe to repeat; the normal
-    path short-circuits when the run is already succeeded. A prohibit that
-    appears after approve still blocks mutate.
+    Captures an immutable pre-change cost and ops baseline before the first
+    mutate and fails closed when that baseline cannot be read. Creates a queued
+    ExecutionRun when one does not exist yet. A succeeded run is returned
+    unchanged (idempotent re-entry). A failed or rolled_back run is refused.
+    Adapter no-ops make individual steps safe to repeat; the normal path
+    short-circuits when the run is already succeeded. A prohibit that appears
+    after approve still blocks mutate.
     """
     from app.execution import ExecutionEventType
     from app.proposals import ApprovalStatus, ExecutionStatus
@@ -280,6 +417,14 @@ def apply_approved_plan(
         raise ApplyError(f"execution {run.execution_id} is {run.status.value}")
 
     apply_adapter = adapter if adapter is not None else SimulatorApplyAdapter()
+    if not isinstance(apply_adapter, SimulatorApplyAdapter):
+        raise ApplyError("baseline cannot be captured: adapter cannot read costs")
+    if run.baseline is None:
+        baseline = capture_pre_change_baseline(apply_adapter, proposal.resource_ids)
+        with_baseline = runs.set_baseline(run.execution_id, baseline)
+        if with_baseline is None or with_baseline.baseline is None:
+            raise ApplyError(f"baseline cannot be captured for {proposal_id}")
+        run = with_baseline
     action_ids: list[str] = []
     for action in run.plan_snapshot:
         result = apply_action_to_run(session, run.execution_id, action, apply_adapter)
